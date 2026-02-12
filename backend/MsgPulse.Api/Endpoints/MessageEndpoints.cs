@@ -60,8 +60,8 @@ public static class MessageEndpoints
     private static async Task<IResult> SendMessage(
         MessageSendRequest request,
         MsgPulseDbContext db,
-        CallbackService callbackService,
-        ProviderFactory providerFactory)
+        BackgroundMessageQueue queue,
+        RateLimitingService rateLimitingService)
     {
         var taskId = Guid.NewGuid().ToString();
 
@@ -89,6 +89,18 @@ public static class MessageEndpoints
         if (!selectedManufacturerId.HasValue)
             return Results.Ok(ApiResponse.Error(400, "没有找到匹配的路由规则"));
 
+        // 速率限制检查
+        var rateLimitResult = await rateLimitingService.CheckRateLimitAsync(selectedManufacturerId.Value);
+        if (!rateLimitResult.IsAllowed)
+        {
+            var response = Results.Json(
+                ApiResponse.Error(429, rateLimitResult.Reason ?? "请求过于频繁，请稍后重试"),
+                statusCode: 429
+            );
+
+            return response;
+        }
+
         // 创建消息记录
         var record = new MessageRecord
         {
@@ -99,7 +111,7 @@ public static class MessageEndpoints
             Variables = request.Variables != null ? JsonSerializer.Serialize(request.Variables) : null,
             ManufacturerId = selectedManufacturerId,
             RouteRuleId = selectedRuleId,
-            SendStatus = "待发送",
+            SendStatus = "队列中",
             CustomTag = request.CustomTag,
             CallbackUrl = request.CallbackUrl,
             CreatedAt = DateTime.UtcNow
@@ -108,103 +120,30 @@ public static class MessageEndpoints
         db.MessageRecords.Add(record);
         await db.SaveChangesAsync();
 
-        // 调用厂商接口发送消息
-        var manufacturer = await db.Manufacturers.FindAsync(selectedManufacturerId.Value);
-        if (manufacturer == null || string.IsNullOrWhiteSpace(manufacturer.Configuration))
+        // 将消息加入队列,异步处理
+        var queuedMessage = new QueuedMessage
+        {
+            MessageRecordId = record.Id,
+            TaskId = taskId,
+            MessageType = request.MessageType,
+            Priority = 5 // 默认优先级
+        };
+
+        var enqueued = await queue.EnqueueAsync(queuedMessage);
+        if (!enqueued)
         {
             record.SendStatus = "失败";
-            record.FailureReason = "厂商未配置";
+            record.FailureReason = "消息队列已满";
             await db.SaveChangesAsync();
-            return Results.Ok(ApiResponse.Error(500, "厂商未配置"));
+            return Results.Ok(ApiResponse.Error(503, "系统繁忙，请稍后重试"));
         }
 
-        var provider = providerFactory.GetProvider(manufacturer.ProviderType);
-        if (provider == null)
+        return Results.Ok(ApiResponse.Success(new
         {
-            record.SendStatus = "失败";
-            record.FailureReason = "厂商实现不存在";
-            await db.SaveChangesAsync();
-            return Results.Ok(ApiResponse.Error(500, "厂商实现不存在"));
-        }
-
-        provider.Initialize(manufacturer.Configuration);
-
-        ProviderResult? result = null;
-        record.SendTime = DateTime.UtcNow;
-
-        try
-        {
-            // 根据消息类型调用对应的发送方法
-            if (request.MessageType == "SMS")
-            {
-                result = await provider.SendSmsAsync(new SmsRequest
-                {
-                    PhoneNumber = request.Recipient,
-                    TemplateCode = request.TemplateCode,
-                    TemplateParams = request.Variables != null ? JsonSerializer.Serialize(request.Variables) : null
-                });
-            }
-            else if (request.MessageType == "Email")
-            {
-                // 获取邮件模板
-                var emailTemplate = await db.EmailTemplates.FirstOrDefaultAsync(t => t.Code == request.TemplateCode);
-                if (emailTemplate == null)
-                {
-                    record.SendStatus = "失败";
-                    record.FailureReason = "邮件模板不存在";
-                    await db.SaveChangesAsync();
-                    return Results.Ok(ApiResponse.Error(400, "邮件模板不存在"));
-                }
-
-                // 替换模板变量
-                var subject = ReplaceVariables(emailTemplate.Subject, request.Variables);
-                var content = ReplaceVariables(emailTemplate.Content, request.Variables);
-
-                result = await provider.SendEmailAsync(new EmailRequest
-                {
-                    ToEmail = request.Recipient,
-                    Subject = subject,
-                    Content = content,
-                    ContentType = emailTemplate.ContentType
-                });
-            }
-            else if (request.MessageType == "AppPush")
-            {
-                result = await provider.SendPushAsync(new AppPushRequest
-                {
-                    Target = request.Recipient,
-                    Title = request.Variables?.GetValueOrDefault("title") ?? "推送消息",
-                    Content = request.Variables?.GetValueOrDefault("content") ?? ""
-                });
-            }
-
-            if (result != null && result.IsSuccess)
-            {
-                record.SendStatus = "成功";
-                record.CompleteTime = DateTime.UtcNow;
-                record.ManufacturerResponse = result.RawResponse;
-            }
-            else
-            {
-                record.SendStatus = "失败";
-                record.FailureReason = result?.ErrorMessage ?? "发送失败";
-                record.ManufacturerResponse = result?.RawResponse;
-            }
-        }
-        catch (Exception ex)
-        {
-            record.SendStatus = "失败";
-            record.FailureReason = ex.Message;
-            record.CompleteTime = DateTime.UtcNow;
-        }
-
-        await db.SaveChangesAsync();
-
-        // 推送状态变更回调
-        await callbackService.PushCallbackAsync(record);
-
-        return Results.Ok(ApiResponse.Success(new { taskId, status = record.SendStatus },
-            record.SendStatus == "成功" ? "消息发送成功" : $"消息发送失败: {record.FailureReason}"));
+            taskId,
+            status = "队列中",
+            message = "消息已提交，正在异步处理"
+        }, "消息已提交"));
     }
 
     private static async Task<IResult> GetMessages(

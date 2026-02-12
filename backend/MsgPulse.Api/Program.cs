@@ -15,6 +15,13 @@ builder.Services.AddHttpClient();
 builder.Services.AddScoped<CallbackService>();
 builder.Services.AddSingleton<ProviderFactory>();
 
+// 注册速率限制服务
+builder.Services.AddSingleton<RateLimitingService>();
+
+// 注册消息队列和后台工作服务
+builder.Services.AddSingleton<BackgroundMessageQueue>();
+builder.Services.AddHostedService<MessageProcessingWorker>();
+
 // 配置CORS
 builder.Services.AddCors(options =>
 {
@@ -56,5 +63,6 @@ app.MapSmsTemplateEndpoints();
 app.MapEmailTemplateEndpoints();
 app.MapRouteRuleEndpoints();
 app.MapMessageEndpoints();
+app.MapRateLimitEndpoints();
 
 app.Run();

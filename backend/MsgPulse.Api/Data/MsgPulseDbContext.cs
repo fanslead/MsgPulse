@@ -14,6 +14,7 @@ public class MsgPulseDbContext : DbContext
     public DbSet<EmailTemplate> EmailTemplates { get; set; }
     public DbSet<RouteRule> RouteRules { get; set; }
     public DbSet<MessageRecord> MessageRecords { get; set; }
+    public DbSet<RateLimitConfig> RateLimitConfigs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -83,6 +84,16 @@ public class MsgPulseDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(e => e.CreatedAt);
             entity.HasIndex(e => e.SendStatus);
+            entity.HasIndex(e => e.ManufacturerId);
+        });
+
+        modelBuilder.Entity<RateLimitConfig>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.Manufacturer)
+                .WithMany()
+                .HasForeignKey(e => e.ManufacturerId)
+                .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(e => e.ManufacturerId);
         });
     }
