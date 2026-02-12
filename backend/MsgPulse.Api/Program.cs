@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using MsgPulse.Api.Data;
 using MsgPulse.Api.Endpoints;
+using MsgPulse.Api.Providers;
 using MsgPulse.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -12,6 +13,7 @@ builder.Services.AddDbContext<MsgPulseDbContext>(options =>
 // 注册服务
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<CallbackService>();
+builder.Services.AddSingleton<ProviderFactory>();
 
 // 配置CORS
 builder.Services.AddCors(options =>

@@ -9,13 +9,15 @@ public class ProviderFactory
 {
     private readonly Dictionary<ProviderType, IMessageProvider> _providers = new();
 
-    public ProviderFactory()
+    public ProviderFactory(IHttpClientFactory httpClientFactory)
     {
         // 注册所有预设厂商
         RegisterProvider(new AliyunSmsProvider());
         RegisterProvider(new TencentSmsProvider());
         RegisterProvider(new SendGridProvider());
-        RegisterProvider(new JpushProvider());
+        RegisterProvider(new JpushProvider(httpClientFactory));
+        RegisterProvider(new SmtpProvider());
+        RegisterProvider(new AzureEmailProvider());
     }
 
     /// <summary>
@@ -73,6 +75,7 @@ public class ProviderFactory
             ProviderType.SendGrid => "SendGrid",
             ProviderType.Mailgun => "Mailgun",
             ProviderType.NetEaseYunxin => "网易云信",
+            ProviderType.CustomSmtp => "自定义SMTP",
             _ => providerType.ToString()
         };
     }

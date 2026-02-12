@@ -53,7 +53,12 @@ public enum ProviderType
     /// <summary>
     /// 网易云信
     /// </summary>
-    NetEaseYunxin = 10
+    NetEaseYunxin = 10,
+
+    /// <summary>
+    /// 自定义SMTP (邮件)
+    /// </summary>
+    CustomSmtp = 11
 }
 
 /// <summary>

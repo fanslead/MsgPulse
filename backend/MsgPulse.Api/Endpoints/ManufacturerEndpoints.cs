@@ -11,8 +11,6 @@ namespace MsgPulse.Api.Endpoints;
 /// </summary>
 public static class ManufacturerEndpoints
 {
-    private static readonly ProviderFactory _providerFactory = new();
-
     /// <summary>
     /// 注册厂商相关的所有端点
     /// </summary>
@@ -62,13 +60,14 @@ public static class ManufacturerEndpoints
     /// </summary>
     private static async Task<IResult> GetManufacturers(
         MsgPulseDbContext db,
+        ProviderFactory providerFactory,
         string? channel)
     {
         // 从数据库获取已保存的配置
         var dbManufacturers = await db.Manufacturers.ToListAsync();
 
         // 获取所有预设厂商
-        var allProviders = _providerFactory.GetProviderInfos();
+        var allProviders = providerFactory.GetProviderInfos();
 
         // 合并数据：预设厂商 + 数据库配置状态
         var result = allProviders.Select(p =>
@@ -100,12 +99,12 @@ public static class ManufacturerEndpoints
     /// <summary>
     /// 获取单个厂商配置
     /// </summary>
-    private static async Task<IResult> GetManufacturer(int id, MsgPulseDbContext db)
+    private static async Task<IResult> GetManufacturer(int id, MsgPulseDbContext db, ProviderFactory providerFactory)
     {
         var manufacturer = await db.Manufacturers.FindAsync(id);
 
         // 即使数据库中没有配置，也返回预设信息
-        var providerInfo = _providerFactory.GetProviderInfos()
+        var providerInfo = providerFactory.GetProviderInfos()
             .FirstOrDefault(p => (int)p.ProviderType == id);
 
         if (providerInfo == null)
@@ -132,15 +131,15 @@ public static class ManufacturerEndpoints
     /// <summary>
     /// 获取配置Schema
     /// </summary>
-    private static IResult GetConfigurationSchema(int id)
+    private static IResult GetConfigurationSchema(int id, ProviderFactory providerFactory)
     {
-        var providerInfo = _providerFactory.GetProviderInfos()
+        var providerInfo = providerFactory.GetProviderInfos()
             .FirstOrDefault(p => (int)p.ProviderType == id);
 
         if (providerInfo == null)
             return Results.Ok(ApiResponse.Error(404, "厂商不存在"));
 
-        var provider = _providerFactory.GetProvider(providerInfo.ProviderType);
+        var provider = providerFactory.GetProvider(providerInfo.ProviderType);
         if (provider == null)
             return Results.Ok(ApiResponse.Error(500, "厂商实现不存在"));
 
@@ -154,9 +153,10 @@ public static class ManufacturerEndpoints
     private static async Task<IResult> UpdateManufacturerConfig(
         int id,
         UpdateConfigRequest request,
-        MsgPulseDbContext db)
+        MsgPulseDbContext db,
+        ProviderFactory providerFactory)
     {
-        var providerInfo = _providerFactory.GetProviderInfos()
+        var providerInfo = providerFactory.GetProviderInfos()
             .FirstOrDefault(p => (int)p.ProviderType == id);
 
         if (providerInfo == null)
@@ -202,13 +202,14 @@ public static class ManufacturerEndpoints
     private static async Task<IResult> TestManufacturerConnection(
         int id,
         TestConnectionRequest request,
-        MsgPulseDbContext db)
+        MsgPulseDbContext db,
+        ProviderFactory providerFactory)
     {
         var manufacturer = await db.Manufacturers.FindAsync(id);
         if (manufacturer == null || string.IsNullOrWhiteSpace(manufacturer.Configuration))
             return Results.Ok(ApiResponse.Error(400, "厂商未配置"));
 
-        var provider = _providerFactory.GetProvider(manufacturer.ProviderType);
+        var provider = providerFactory.GetProvider(manufacturer.ProviderType);
         if (provider == null)
             return Results.Ok(ApiResponse.Error(500, "厂商实现不存在"));
 
@@ -236,13 +237,13 @@ public static class ManufacturerEndpoints
     /// <summary>
     /// 同步短信模板
     /// </summary>
-    private static async Task<IResult> SyncSmsTemplates(int id, MsgPulseDbContext db)
+    private static async Task<IResult> SyncSmsTemplates(int id, MsgPulseDbContext db, ProviderFactory providerFactory)
     {
         var manufacturer = await db.Manufacturers.FindAsync(id);
         if (manufacturer == null || string.IsNullOrWhiteSpace(manufacturer.Configuration))
             return Results.Ok(ApiResponse.Error(400, "厂商未配置"));
 
-        var provider = _providerFactory.GetProvider(manufacturer.ProviderType);
+        var provider = providerFactory.GetProvider(manufacturer.ProviderType);
         if (provider == null)
             return Results.Ok(ApiResponse.Error(500, "厂商实现不存在"));
 

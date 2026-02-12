@@ -1,11 +1,7 @@
+using System.Text;
 using System.Text.Json;
 using MsgPulse.Api.Models;
 using MsgPulse.Api.Providers.Models;
-using cn.jpush.api;
-using cn.jpush.api.push;
-using cn.jpush.api.push.mode;
-using cn.jpush.api.push.notification;
-using cn.jpush.api.common;
 
 namespace MsgPulse.Api.Providers.Implementations;
 
@@ -20,7 +16,7 @@ public class JpushConfig
 }
 
 /// <summary>
-/// 极光推送厂商实现
+/// 极光推送厂商实现 (使用REST API)
 /// </summary>
 public class JpushProvider : BaseMessageProvider
 {
@@ -28,7 +24,13 @@ public class JpushProvider : BaseMessageProvider
     public override MessageChannel[] SupportedChannels => new[] { MessageChannel.AppPush };
 
     private JpushConfig? _config;
-    private JPushClient? _client;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private const string JpushApiUrl = "https://api.jpush.cn/v3/push";
+
+    public JpushProvider(IHttpClientFactory httpClientFactory)
+    {
+        _httpClientFactory = httpClientFactory;
+    }
 
     public override ConfigurationSchema GetConfigurationSchema()
     {
@@ -99,104 +101,73 @@ public class JpushProvider : BaseMessageProvider
         if (!string.IsNullOrWhiteSpace(configuration))
         {
             _config = JsonSerializer.Deserialize<JpushConfig>(configuration);
-
-            if (_config != null && !string.IsNullOrWhiteSpace(_config.AppKey) && !string.IsNullOrWhiteSpace(_config.MasterSecret))
-            {
-                _client = new JPushClient(_config.AppKey, _config.MasterSecret);
-            }
         }
     }
 
     public override async Task<ProviderResult> SendPushAsync(AppPushRequest request, CancellationToken cancellationToken = default)
     {
-        if (_config == null || _client == null)
+        if (_config == null || string.IsNullOrWhiteSpace(_config.AppKey) || string.IsNullOrWhiteSpace(_config.MasterSecret))
         {
             return ProviderResult.Failure("极光推送未配置或配置无效");
         }
 
         try
         {
-            // 构建推送对象
-            var pushPayload = new PushPayload();
-
-            // 设置推送平台
-            if (string.IsNullOrWhiteSpace(request.Platform))
+            // 构建推送请求体
+            var pushPayload = new
             {
-                pushPayload.platform = Platform.all();
-            }
-            else if (request.Platform.Equals("iOS", StringComparison.OrdinalIgnoreCase))
+                platform = DeterminePlatform(request.Platform),
+                audience = DetermineAudience(request.Target),
+                notification = new
+                {
+                    alert = request.Content,
+                    android = new
+                    {
+                        alert = request.Content,
+                        title = request.Title
+                    },
+                    ios = new
+                    {
+                        alert = request.Content,
+                        badge = "+1",
+                        sound = "default"
+                    }
+                },
+                options = new
+                {
+                    apns_production = _config.ApnsProduction ?? false,
+                    time_to_live = 3600
+                }
+            };
+
+            var jsonPayload = JsonSerializer.Serialize(pushPayload);
+            var httpClient = _httpClientFactory.CreateClient();
+
+            // 设置Basic认证
+            var authString = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_config.AppKey}:{_config.MasterSecret}"));
+            httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authString);
+
+            var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+            var response = await httpClient.PostAsync(JpushApiUrl, content, cancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (response.IsSuccessStatusCode)
             {
-                pushPayload.platform = Platform.ios();
-            }
-            else if (request.Platform.Equals("Android", StringComparison.OrdinalIgnoreCase))
-            {
-                pushPayload.platform = Platform.android();
-            }
-            else
-            {
-                pushPayload.platform = Platform.all();
-            }
+                var result = JsonSerializer.Deserialize<JsonElement>(responseBody);
+                var msgId = result.GetProperty("msg_id").GetString() ?? Guid.NewGuid().ToString("N");
 
-            // 设置目标设备（使用别名或注册ID）
-            if (request.Target.Contains("@"))
-            {
-                // 假设包含@的是别名
-                pushPayload.audience = Audience.s_alias(request.Target);
-            }
-            else
-            {
-                // 否则当做注册ID
-                pushPayload.audience = Audience.s_registrationId(request.Target);
-            }
-
-            // 设置通知内容
-            var notification = new Notification()
-                .setAlert(request.Content);
-
-            // Android通知
-            notification.AndroidNotification = new AndroidNotification()
-                .setAlert(request.Content)
-                .setTitle(request.Title);
-
-            // iOS通知
-            notification.IosNotification = new IosNotification()
-                .setAlert(request.Content)
-                .incrBadge(1)
-                .setSound("default");
-
-            pushPayload.notification = notification;
-
-            // 设置离线保留时间（1小时）
-            var options = new Options();
-            options.apns_production = _config.ApnsProduction ?? false;
-            options.time_to_live = 3600;
-            pushPayload.options = options;
-
-            // 发送推送
-            var response = await Task.Run(() => _client.SendPush(pushPayload), cancellationToken);
-
-            if (response.isResultOK())
-            {
                 return ProviderResult.Success(
-                    messageId: response.msg_id.ToString(),
-                    rawResponse: JsonSerializer.Serialize(new { response.msg_id, response.sendno })
+                    messageId: msgId,
+                    rawResponse: responseBody
                 );
             }
             else
             {
-                var content = response.ResponseResult != null ? "请求失败" : "未知错误";
                 return ProviderResult.Failure(
-                    errorMessage: $"极光推送发送失败: {content}",
-                    rawResponse: content
+                    errorMessage: $"极光推送发送失败: HTTP {response.StatusCode}",
+                    rawResponse: responseBody
                 );
             }
-        }
-        catch (APIRequestException ex)
-        {
-            return ProviderResult.Failure(
-                errorMessage: $"极光推送API异常: {ex.Message}",
-                rawResponse: $"ErrorCode: {ex.ErrorCode}, ErrorMessage: {ex.ErrorMessage}"
-            );
         }
         catch (Exception ex)
         {
@@ -211,57 +182,81 @@ public class JpushProvider : BaseMessageProvider
             return ProviderResult.Failure("极光推送仅支持APP推送渠道");
         }
 
-        if (_config == null || _client == null)
+        if (_config == null || string.IsNullOrWhiteSpace(_config.AppKey) || string.IsNullOrWhiteSpace(_config.MasterSecret))
         {
             return ProviderResult.Failure("配置信息不完整");
         }
 
         try
         {
-            // 使用一个简单的推送请求验证配置
-            var testPayload = new PushPayload
+            // 使用不存在的标签测试连接
+            var testPayload = new
             {
-                platform = Platform.all(),
-                audience = Audience.s_tag("__test__"),
-                notification = new Notification().setAlert("test")
+                platform = "all",
+                audience = new { tag = new[] { "__test__" } },
+                notification = new { alert = "test" }
             };
 
-            // 只验证payload格式，不实际发送
-            var result = await Task.Run(() =>
-            {
-                try
-                {
-                    // 尝试发送到一个不存在的标签，如果认证成功会返回错误但连接正常
-                    var resp = _client.SendPush(testPayload);
-                    return true;
-                }
-                catch (APIRequestException ex)
-                {
-                    // 这些错误码表示认证成功但目标不存在
-                    if (ex.ErrorCode == 1011 || ex.ErrorCode == 1020 || ex.ErrorCode == 1003)
-                    {
-                        return true;
-                    }
-                    throw;
-                }
-            }, cancellationToken);
+            var jsonPayload = JsonSerializer.Serialize(testPayload);
+            var httpClient = _httpClientFactory.CreateClient();
 
-            if (result)
+            var authString = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_config.AppKey}:{_config.MasterSecret}"));
+            httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authString);
+
+            var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+            var response = await httpClient.PostAsync(JpushApiUrl, content, cancellationToken);
+
+            // 认证成功即表示连接正常，即使标签不存在也没关系
+            if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.BadRequest)
             {
                 return ProviderResult.Success("连接测试成功", "极光推送API可正常访问");
             }
+            else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                return ProviderResult.Failure("连接测试失败: AppKey或Master Secret错误");
+            }
             else
             {
-                return ProviderResult.Failure("连接测试失败: 推送验证失败");
+                var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                return ProviderResult.Failure($"连接测试失败: HTTP {response.StatusCode}, {responseBody}");
             }
-        }
-        catch (APIRequestException ex)
-        {
-            return ProviderResult.Failure($"连接测试失败: {ex.ErrorMessage}");
         }
         catch (Exception ex)
         {
             return ProviderResult.Failure($"连接测试失败: {ex.Message}");
+        }
+    }
+
+    private static object DeterminePlatform(string? platform)
+    {
+        if (string.IsNullOrWhiteSpace(platform))
+        {
+            return "all";
+        }
+        else if (platform.Equals("iOS", StringComparison.OrdinalIgnoreCase))
+        {
+            return new[] { "ios" };
+        }
+        else if (platform.Equals("Android", StringComparison.OrdinalIgnoreCase))
+        {
+            return new[] { "android" };
+        }
+        else
+        {
+            return "all";
+        }
+    }
+
+    private static object DetermineAudience(string target)
+    {
+        // 假设包含@的是别名，否则是注册ID
+        if (target.Contains('@'))
+        {
+            return new { alias = new[] { target } };
+        }
+        else
+        {
+            return new { registration_id = new[] { target } };
         }
     }
 }

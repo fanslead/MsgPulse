@@ -13,7 +13,6 @@ namespace MsgPulse.Api.Endpoints;
 /// </summary>
 public static class MessageEndpoints
 {
-    private static readonly ProviderFactory _providerFactory = new();
     /// <summary>
     /// 注册消息相关的所有端点
     /// </summary>
@@ -61,7 +60,8 @@ public static class MessageEndpoints
     private static async Task<IResult> SendMessage(
         MessageSendRequest request,
         MsgPulseDbContext db,
-        CallbackService callbackService)
+        CallbackService callbackService,
+        ProviderFactory providerFactory)
     {
         var taskId = Guid.NewGuid().ToString();
 
@@ -118,7 +118,7 @@ public static class MessageEndpoints
             return Results.Ok(ApiResponse.Error(500, "厂商未配置"));
         }
 
-        var provider = _providerFactory.GetProvider(manufacturer.ProviderType);
+        var provider = providerFactory.GetProvider(manufacturer.ProviderType);
         if (provider == null)
         {
             record.SendStatus = "失败";
@@ -260,7 +260,7 @@ public static class MessageEndpoints
         return Results.Ok(ApiResponse.Success(record));
     }
 
-    private static async Task<IResult> RetryMessage(int id, MsgPulseDbContext db, CallbackService callbackService)
+    private static async Task<IResult> RetryMessage(int id, MsgPulseDbContext db, CallbackService callbackService, ProviderFactory providerFactory)
     {
         var record = await db.MessageRecords
             .Include(m => m.Manufacturer)
@@ -275,7 +275,7 @@ public static class MessageEndpoints
         if (record.Manufacturer == null || string.IsNullOrWhiteSpace(record.Manufacturer.Configuration))
             return Results.Ok(ApiResponse.Error(500, "厂商未配置"));
 
-        var provider = _providerFactory.GetProvider(record.Manufacturer.ProviderType);
+        var provider = providerFactory.GetProvider(record.Manufacturer.ProviderType);
         if (provider == null)
             return Results.Ok(ApiResponse.Error(500, "厂商实现不存在"));
 
@@ -367,7 +367,8 @@ public static class MessageEndpoints
     private static async Task<IResult> BatchSendMessage(
         BatchSendRequest request,
         MsgPulseDbContext db,
-        CallbackService callbackService)
+        CallbackService callbackService,
+        ProviderFactory providerFactory)
     {
         var successCount = 0;
         var failCount = 0;
@@ -437,7 +438,7 @@ public static class MessageEndpoints
                 var manufacturer = await db.Manufacturers.FindAsync(selectedManufacturerId.Value);
                 if (manufacturer != null && !string.IsNullOrWhiteSpace(manufacturer.Configuration))
                 {
-                    var provider = _providerFactory.GetProvider(manufacturer.ProviderType);
+                    var provider = providerFactory.GetProvider(manufacturer.ProviderType);
                     if (provider != null)
                     {
                         provider.Initialize(manufacturer.Configuration);
