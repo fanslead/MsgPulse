@@ -10,7 +10,7 @@ namespace MsgPulse.Api.Services;
 /// </summary>
 public class RateLimitingService
 {
-    private readonly MsgPulseDbContext _db;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<RateLimitingService> _logger;
 
     // 内存中的请求时间戳队列 (ManufacturerId -> 请求时间戳列表)
@@ -25,9 +25,9 @@ public class RateLimitingService
     // 锁对象
     private readonly object _cacheLock = new();
 
-    public RateLimitingService(MsgPulseDbContext db, ILogger<RateLimitingService> logger)
+    public RateLimitingService(IServiceProvider serviceProvider, ILogger<RateLimitingService> logger)
     {
-        _db = db;
+        _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
@@ -169,7 +169,11 @@ public class RateLimitingService
 
             try
             {
-                var configs = _db.RateLimitConfigs.ToList();
+                // 使用 IServiceProvider 创建 scope 来访问 DbContext
+                using var scope = _serviceProvider.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<MsgPulseDbContext>();
+
+                var configs = db.RateLimitConfigs.ToList();
 
                 _configCache.Clear();
                 _globalConfig = null;
