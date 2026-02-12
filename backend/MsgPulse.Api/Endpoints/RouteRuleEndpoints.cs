@@ -45,6 +45,12 @@ public static class RouteRuleEndpoints
             .WithName("DeleteRouteRule")
             .WithSummary("删除路由规则")
             .WithDescription("删除指定的路由规则（需确保没有关联记录）");
+
+        // 测试路由规则
+        group.MapPost("/test", TestRouteRule)
+            .WithName("TestRouteRule")
+            .WithSummary("测试路由规则")
+            .WithDescription("输入测试条件,验证规则是否匹配成功,并返回匹配的目标厂商");
     }
 
     private static async Task<IResult> GetRouteRules(
@@ -133,4 +139,61 @@ public static class RouteRuleEndpoints
 
         return Results.Ok(ApiResponse.Success(message: "路由规则删除成功"));
     }
+
+    /// <summary>
+    /// 测试路由规则匹配
+    /// </summary>
+    private static async Task<IResult> TestRouteRule(
+        TestRouteRuleRequest request,
+        MsgPulseDbContext db)
+    {
+        // 获取所有启用的路由规则,按优先级排序
+        var rules = await db.RouteRules
+            .Include(r => r.TargetManufacturer)
+            .Where(r => r.MessageType == request.MessageType && r.IsActive)
+            .OrderBy(r => r.Priority)
+            .ToListAsync();
+
+        if (rules.Count == 0)
+        {
+            return Results.Ok(ApiResponse.Error(404, $"没有找到适用于{request.MessageType}的路由规则"));
+        }
+
+        // 遍历规则,找到第一个匹配的
+        foreach (var rule in rules)
+        {
+            // 简化版匹配逻辑:只要厂商启用就认为匹配
+            // 实际项目应根据MatchConditions进行复杂匹配
+            if (rule.TargetManufacturer?.IsActive == true)
+            {
+                return Results.Ok(ApiResponse.Success(new
+                {
+                    matched = true,
+                    ruleId = rule.Id,
+                    ruleName = rule.Name,
+                    priority = rule.Priority,
+                    targetManufacturer = new
+                    {
+                        id = rule.TargetManufacturer.Id,
+                        name = rule.TargetManufacturer.Name,
+                        code = rule.TargetManufacturer.Code,
+                        providerType = rule.TargetManufacturer.ProviderType.ToString()
+                    },
+                    matchConditions = rule.MatchConditions
+                }, $"匹配成功:规则「{rule.Name}」,目标厂商「{rule.TargetManufacturer.Name}」"));
+            }
+        }
+
+        return Results.Ok(ApiResponse.Error(404, "未找到可用的匹配规则(所有规则的目标厂商均未启用)"));
+    }
 }
+
+/// <summary>
+/// 测试路由规则请求
+/// </summary>
+public record TestRouteRuleRequest(
+    string MessageType,
+    string? TemplateCode,
+    string? Recipient,
+    string? CustomTag
+);

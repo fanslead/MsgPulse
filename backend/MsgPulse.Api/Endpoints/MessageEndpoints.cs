@@ -3,6 +3,7 @@ using MsgPulse.Api.Data;
 using MsgPulse.Api.Models;
 using MsgPulse.Api.Providers;
 using MsgPulse.Api.Providers.Models;
+using MsgPulse.Api.Services;
 using System.Text.Json;
 
 namespace MsgPulse.Api.Endpoints;
@@ -59,7 +60,8 @@ public static class MessageEndpoints
 
     private static async Task<IResult> SendMessage(
         MessageSendRequest request,
-        MsgPulseDbContext db)
+        MsgPulseDbContext db,
+        CallbackService callbackService)
     {
         var taskId = Guid.NewGuid().ToString();
 
@@ -99,6 +101,7 @@ public static class MessageEndpoints
             RouteRuleId = selectedRuleId,
             SendStatus = "待发送",
             CustomTag = request.CustomTag,
+            CallbackUrl = request.CallbackUrl,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -197,6 +200,9 @@ public static class MessageEndpoints
 
         await db.SaveChangesAsync();
 
+        // 推送状态变更回调
+        await callbackService.PushCallbackAsync(record);
+
         return Results.Ok(ApiResponse.Success(new { taskId, status = record.SendStatus },
             record.SendStatus == "成功" ? "消息发送成功" : $"消息发送失败: {record.FailureReason}"));
     }
@@ -254,7 +260,7 @@ public static class MessageEndpoints
         return Results.Ok(ApiResponse.Success(record));
     }
 
-    private static async Task<IResult> RetryMessage(int id, MsgPulseDbContext db)
+    private static async Task<IResult> RetryMessage(int id, MsgPulseDbContext db, CallbackService callbackService)
     {
         var record = await db.MessageRecords
             .Include(m => m.Manufacturer)
@@ -348,6 +354,9 @@ public static class MessageEndpoints
 
         await db.SaveChangesAsync();
 
+        // 推送状态变更回调
+        await callbackService.PushCallbackAsync(record);
+
         return Results.Ok(ApiResponse.Success(new { status = record.SendStatus },
             record.SendStatus == "成功" ? "消息重试成功" : $"消息重试失败: {record.FailureReason}"));
     }
@@ -357,7 +366,8 @@ public static class MessageEndpoints
     /// </summary>
     private static async Task<IResult> BatchSendMessage(
         BatchSendRequest request,
-        MsgPulseDbContext db)
+        MsgPulseDbContext db,
+        CallbackService callbackService)
     {
         var successCount = 0;
         var failCount = 0;
@@ -372,7 +382,8 @@ public static class MessageEndpoints
                     request.TemplateCode,
                     recipient,
                     request.Variables,
-                    request.CustomTag
+                    request.CustomTag,
+                    request.CallbackUrl
                 );
 
                 // 重用SendMessage逻辑
@@ -415,6 +426,7 @@ public static class MessageEndpoints
                     RouteRuleId = selectedRuleId,
                     SendStatus = "待发送",
                     CustomTag = request.CustomTag,
+                    CallbackUrl = request.CallbackUrl,
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -481,6 +493,9 @@ public static class MessageEndpoints
                         }
 
                         await db.SaveChangesAsync();
+
+                        // 推送状态变更回调
+                        await callbackService.PushCallbackAsync(record);
                     }
                 }
             }
@@ -574,7 +589,8 @@ public record MessageSendRequest(
     string TemplateCode,
     string Recipient,
     Dictionary<string, string>? Variables,
-    string? CustomTag
+    string? CustomTag,
+    string? CallbackUrl
 );
 
 /// <summary>
@@ -585,5 +601,6 @@ public record BatchSendRequest(
     string TemplateCode,
     List<string> Recipients,
     Dictionary<string, string>? Variables,
-    string? CustomTag
+    string? CustomTag,
+    string? CallbackUrl
 );

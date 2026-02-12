@@ -16,6 +16,7 @@ public class MessageRecord
     public string? ManufacturerResponse { get; set; }
     public string? FailureReason { get; set; }
     public string? CustomTag { get; set; }
+    public string? CallbackUrl { get; set; }
     public int RetryCount { get; set; } = 0;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

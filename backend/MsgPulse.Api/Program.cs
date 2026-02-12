@@ -1,12 +1,17 @@
 using Microsoft.EntityFrameworkCore;
 using MsgPulse.Api.Data;
 using MsgPulse.Api.Endpoints;
+using MsgPulse.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // 配置数据库
 builder.Services.AddDbContext<MsgPulseDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=msgpulse.db"));
+
+// 注册服务
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<CallbackService>();
 
 // 配置CORS
 builder.Services.AddCors(options =>
