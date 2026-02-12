@@ -1,5 +1,8 @@
 using System.Text.Json;
 using MsgPulse.Api.Providers.Models;
+using AlibabaCloud.SDK.Dysmsapi20170525;
+using AlibabaCloud.SDK.Dysmsapi20170525.Models;
+using Tea;
 
 namespace MsgPulse.Api.Providers.Implementations;
 
@@ -12,6 +15,7 @@ public class AliyunSmsConfig
     public string? AccessKeySecret { get; set; }
     public string? RegionId { get; set; }
     public string? SignName { get; set; }
+    public string? Endpoint { get; set; }
 }
 
 /// <summary>
@@ -23,6 +27,7 @@ public class AliyunSmsProvider : BaseMessageProvider
     public override MessageChannel[] SupportedChannels => new[] { MessageChannel.SMS };
 
     private AliyunSmsConfig? _config;
+    private Client? _client;
 
     public override void Initialize(string? configuration)
     {
@@ -30,26 +35,59 @@ public class AliyunSmsProvider : BaseMessageProvider
         if (!string.IsNullOrWhiteSpace(configuration))
         {
             _config = JsonSerializer.Deserialize<AliyunSmsConfig>(configuration);
+
+            if (_config != null && !string.IsNullOrWhiteSpace(_config.AccessKeyId) && !string.IsNullOrWhiteSpace(_config.AccessKeySecret))
+            {
+                var config = new AlibabaCloud.OpenApiClient.Models.Config
+                {
+                    AccessKeyId = _config.AccessKeyId,
+                    AccessKeySecret = _config.AccessKeySecret,
+                    Endpoint = _config.Endpoint ?? "dysmsapi.aliyuncs.com"
+                };
+                _client = new Client(config);
+            }
         }
     }
 
     public override async Task<ProviderResult> SendSmsAsync(SmsRequest request, CancellationToken cancellationToken = default)
     {
-        if (_config == null || string.IsNullOrWhiteSpace(_config.AccessKeyId))
+        if (_config == null || _client == null)
         {
             return ProviderResult.Failure("阿里云短信未配置或配置无效");
         }
 
         try
         {
-            // TODO: 集成阿里云SDK
-            // 这里是示例代码，实际应该调用阿里云SDK
-            await Task.Delay(100, cancellationToken); // 模拟API调用
+            var sendRequest = new SendSmsRequest
+            {
+                PhoneNumbers = request.PhoneNumber,
+                SignName = request.SignName ?? _config.SignName,
+                TemplateCode = request.TemplateCode,
+                TemplateParam = request.TemplateParams
+            };
 
-            // 模拟成功响应
-            return ProviderResult.Success(
-                messageId: $"aliyun-{Guid.NewGuid():N}",
-                rawResponse: "阿里云短信发送成功（示例）"
+            var response = await _client.SendSmsAsync(sendRequest);
+
+            if (response?.Body?.Code == "OK")
+            {
+                return ProviderResult.Success(
+                    messageId: response.Body.BizId ?? $"aliyun-{Guid.NewGuid():N}",
+                    rawResponse: JsonSerializer.Serialize(response.Body)
+                );
+            }
+            else
+            {
+                return ProviderResult.Failure(
+                    errorMessage: $"阿里云短信发送失败: {response?.Body?.Message ?? "未知错误"}",
+                    rawResponse: JsonSerializer.Serialize(response?.Body)
+                );
+            }
+        }
+        catch (TeaException ex)
+        {
+            return ProviderResult.Failure(
+                errorMessage: $"阿里云短信发送异常: {ex.Message}",
+                rawResponse: JsonSerializer.Serialize(new { ex.Code, ex.Message, ex.Data })
             );
         }
         catch (Exception ex)
@@ -65,16 +103,41 @@ public class AliyunSmsProvider : BaseMessageProvider
             return ProviderResult.Failure("阿里云仅支持短信渠道");
         }
 
-        if (_config == null || string.IsNullOrWhiteSpace(_config.AccessKeyId))
+        if (_config == null || _client == null)
         {
             return ProviderResult.Failure("配置信息不完整");
         }
 
         try
         {
-            // TODO: 实际应该调用阿里云的测试接口
-            await Task.Delay(50, cancellationToken);
-            return ProviderResult.Success("连接测试成功", "配置有效");
+            // 使用QuerySendDetails接口测试连接（查询最近一条记录）
+            var testRequest = new QuerySendDetailsRequest
+            {
+                PhoneNumber = "13800138000", // 测试手机号
+                SendDate = DateTime.Now.ToString("yyyyMMdd"),
+                PageSize = 1,
+                CurrentPage = 1
+            };
+
+            var response = await _client.QuerySendDetailsAsync(testRequest);
+
+            if (response?.Body?.Code == "OK" || response?.Body?.Code == "isv.BUSINESS_LIMIT_CONTROL")
+            {
+                return ProviderResult.Success("连接测试成功", "阿里云API调用正常");
+            }
+            else
+            {
+                return ProviderResult.Failure($"连接测试失败: {response?.Body?.Message ?? "未知错误"}");
+            }
+        }
+        catch (TeaException ex)
+        {
+            // 某些错误码表示连接正常但参数问题，这也算测试成功
+            if (ex.Code == "isv.BUSINESS_LIMIT_CONTROL" || ex.Code == "isv.MOBILE_NUMBER_ILLEGAL")
+            {
+                return ProviderResult.Success("连接测试成功", "阿里云API可正常访问");
+            }
+            return ProviderResult.Failure($"连接测试失败: {ex.Message}");
         }
         catch (Exception ex)
         {
@@ -84,7 +147,7 @@ public class AliyunSmsProvider : BaseMessageProvider
 
     public override async Task<TemplateSyncResult> SyncSmsTemplatesAsync(CancellationToken cancellationToken = default)
     {
-        if (_config == null || string.IsNullOrWhiteSpace(_config.AccessKeyId))
+        if (_config == null || _client == null)
         {
             return new TemplateSyncResult
             {
@@ -95,24 +158,43 @@ public class AliyunSmsProvider : BaseMessageProvider
 
         try
         {
-            // TODO: 调用阿里云QuerySmsTemplate接口获取模板列表
-            await Task.Delay(100, cancellationToken);
-
-            // 模拟返回数据
-            return new TemplateSyncResult
+            // 调用QuerySmsTemplateList查询模板列表
+            var queryRequest = new QuerySmsTemplateListRequest
             {
-                IsSuccess = true,
-                Templates = new List<SyncedTemplate>
-                {
-                    new SyncedTemplate
-                    {
-                        Code = "SMS_123456789",
-                        Name = "验证码模板",
-                        Content = "您的验证码是${code},5分钟内有效",
-                        Status = "已审核"
-                    }
-                }
+                PageIndex = 1,
+                PageSize = 50
             };
+
+            var response = await _client.QuerySmsTemplateListAsync(queryRequest);
+
+            if (response?.Body?.Code == "OK" && response.Body.SmsTemplateList != null)
+            {
+                var templates = new List<SyncedTemplate>();
+                foreach (var template in response.Body.SmsTemplateList)
+                {
+                    templates.Add(new SyncedTemplate
+                    {
+                        Code = template.TemplateCode ?? "",
+                        Name = template.TemplateName ?? "",
+                        Content = template.TemplateContent ?? "",
+                        Status = ConvertTemplateStatus(template.TemplateType)
+                    });
+                }
+
+                return new TemplateSyncResult
+                {
+                    IsSuccess = true,
+                    Templates = templates
+                };
+            }
+            else
+            {
+                return new TemplateSyncResult
+                {
+                    IsSuccess = false,
+                    ErrorMessage = $"模板同步失败: {response?.Body?.Message ?? "未知错误"}"
+                };
+            }
         }
         catch (Exception ex)
         {
@@ -122,5 +204,16 @@ public class AliyunSmsProvider : BaseMessageProvider
                 ErrorMessage = $"模板同步失败: {ex.Message}"
             };
         }
+    }
+
+    private static string ConvertTemplateStatus(int? status)
+    {
+        return status switch
+        {
+            0 => "审核中",
+            1 => "已审核",
+            2 => "审核失败",
+            _ => "未知"
+        };
     }
 }

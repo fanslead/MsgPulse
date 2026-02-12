@@ -13,6 +13,18 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.3" />
+
+    <!-- 阿里云短信SDK -->
+    <PackageReference Include="AlibabaCloud.SDK.Dysmsapi20170525" Version="2.0.24" />
+
+    <!-- 腾讯云短信SDK -->
+    <PackageReference Include="TencentCloudSDK.Sms" Version="3.0.1153" />
+
+    <!-- SendGrid邮件SDK -->
+    <PackageReference Include="SendGrid" Version="9.29.3" />
+
+    <!-- 极光推送SDK -->
+    <PackageReference Include="JPush" Version="3.2.7" />
   </ItemGroup>
 
 </Project>

@@ -1,5 +1,7 @@
 using System.Text.Json;
 using MsgPulse.Api.Providers.Models;
+using SendGrid;
+using SendGrid.Helpers.Mail;
 
 namespace MsgPulse.Api.Providers.Implementations;
 
@@ -22,6 +24,7 @@ public class SendGridProvider : BaseMessageProvider
     public override MessageChannel[] SupportedChannels => new[] { MessageChannel.Email };
 
     private SendGridConfig? _config;
+    private SendGridClient? _client;
 
     public override void Initialize(string? configuration)
     {
@@ -29,25 +32,54 @@ public class SendGridProvider : BaseMessageProvider
         if (!string.IsNullOrWhiteSpace(configuration))
         {
             _config = JsonSerializer.Deserialize<SendGridConfig>(configuration);
+
+            if (_config != null && !string.IsNullOrWhiteSpace(_config.ApiKey))
+            {
+                _client = new SendGridClient(_config.ApiKey);
+            }
         }
     }
 
     public override async Task<ProviderResult> SendEmailAsync(EmailRequest request, CancellationToken cancellationToken = default)
     {
-        if (_config == null || string.IsNullOrWhiteSpace(_config.ApiKey))
+        if (_config == null || _client == null || string.IsNullOrWhiteSpace(_config.FromEmail))
         {
             return ProviderResult.Failure("SendGrid未配置或配置无效");
         }
 
         try
         {
-            // TODO: 集成SendGrid SDK
-            await Task.Delay(100, cancellationToken);
+            var from = new EmailAddress(_config.FromEmail, request.FromName ?? _config.FromName);
+            var to = new EmailAddress(request.ToEmail);
 
-            return ProviderResult.Success(
-                messageId: $"sendgrid-{Guid.NewGuid():N}",
-                rawResponse: "SendGrid邮件发送成功（示例）"
+            var message = MailHelper.CreateSingleEmail(
+                from,
+                to,
+                request.Subject,
+                request.ContentType == "Text" ? request.Content : null,
+                request.ContentType == "HTML" ? request.Content : null
             );
+
+            var response = await _client.SendEmailAsync(message, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                // SendGrid 返回的 X-Message-Id header 包含消息ID
+                var messageId = response.Headers.GetValues("X-Message-Id").FirstOrDefault() ?? $"sendgrid-{Guid.NewGuid():N}";
+
+                return ProviderResult.Success(
+                    messageId: messageId,
+                    rawResponse: $"StatusCode: {response.StatusCode}"
+                );
+            }
+            else
+            {
+                var responseBody = await response.Body.ReadAsStringAsync(cancellationToken);
+                return ProviderResult.Failure(
+                    errorMessage: $"SendGrid邮件发送失败: {response.StatusCode}",
+                    rawResponse: responseBody
+                );
+            }
         }
         catch (Exception ex)
         {
@@ -62,15 +94,29 @@ public class SendGridProvider : BaseMessageProvider
             return ProviderResult.Failure("SendGrid仅支持邮件渠道");
         }
 
-        if (_config == null || string.IsNullOrWhiteSpace(_config.ApiKey))
+        if (_config == null || _client == null)
         {
             return ProviderResult.Failure("配置信息不完整");
         }
 
         try
         {
-            await Task.Delay(50, cancellationToken);
-            return ProviderResult.Success("连接测试成功", "配置有效");
+            // 使用 API Key 验证接口测试连接
+            var response = await _client.RequestAsync(
+                method: SendGridClient.Method.GET,
+                urlPath: "scopes",
+                cancellationToken: cancellationToken
+            );
+
+            if (response.IsSuccessStatusCode)
+            {
+                return ProviderResult.Success("连接测试成功", "SendGrid API密钥有效");
+            }
+            else
+            {
+                var responseBody = await response.Body.ReadAsStringAsync(cancellationToken);
+                return ProviderResult.Failure($"连接测试失败: {response.StatusCode} - {responseBody}");
+            }
         }
         catch (Exception ex)
         {
