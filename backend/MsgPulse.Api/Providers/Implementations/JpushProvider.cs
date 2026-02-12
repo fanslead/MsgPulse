@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MsgPulse.Api.Models;
 using MsgPulse.Api.Providers.Models;
 using cn.jpush.api;
 using cn.jpush.api.push;
@@ -28,6 +29,69 @@ public class JpushProvider : BaseMessageProvider
 
     private JpushConfig? _config;
     private JPushClient? _client;
+
+    public override ConfigurationSchema GetConfigurationSchema()
+    {
+        return new ConfigurationSchema
+        {
+            ProviderName = "极光推送",
+            Description = "极光推送(JPush)是领先的第三方消息推送服务商，支持Android和iOS双平台",
+            DocumentationUrl = "https://docs.jiguang.cn/jpush/server/push/rest_api_v3_push/",
+            Fields = new List<ConfigurationField>
+            {
+                new ConfigurationField
+                {
+                    Name = "appKey",
+                    Label = "AppKey",
+                    Type = "text",
+                    Required = true,
+                    Placeholder = "1234567890abcdef",
+                    HelpText = "极光推送应用的AppKey，在极光开发者平台创建应用后获得",
+                    ValidationPattern = "^[a-zA-Z0-9]{24}$",
+                    ValidationMessage = "请输入有效的AppKey(24位字母数字)",
+                    IsSensitive = false,
+                    Group = "认证信息",
+                    Order = 1
+                },
+                new ConfigurationField
+                {
+                    Name = "masterSecret",
+                    Label = "Master Secret",
+                    Type = "password",
+                    Required = true,
+                    Placeholder = "请输入Master Secret",
+                    HelpText = "极光推送应用的Master Secret，请妥善保管",
+                    ValidationPattern = "^[a-zA-Z0-9]{24}$",
+                    ValidationMessage = "请输入有效的Master Secret(24位字母数字)",
+                    IsSensitive = true,
+                    Group = "认证信息",
+                    Order = 2
+                },
+                new ConfigurationField
+                {
+                    Name = "apnsProduction",
+                    Label = "iOS生产环境",
+                    Type = "select",
+                    Required = false,
+                    DefaultValue = "false",
+                    HelpText = "iOS推送环境，开发环境选择false，生产环境选择true",
+                    IsSensitive = false,
+                    Group = "推送配置",
+                    Order = 3,
+                    Options = new List<SelectOption>
+                    {
+                        new SelectOption { Label = "开发环境(Sandbox)", Value = "false" },
+                        new SelectOption { Label = "生产环境(Production)", Value = "true" }
+                    }
+                }
+            },
+            Example = @"{
+  ""appKey"": ""1234567890abcdef1234"",
+  ""masterSecret"": ""abcdef1234567890abcd"",
+  ""apnsProduction"": false
+}"
+        };
+    }
 
     public override void Initialize(string? configuration)
     {

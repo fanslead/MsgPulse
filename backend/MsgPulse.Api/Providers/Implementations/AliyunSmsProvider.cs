@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MsgPulse.Api.Models;
 using MsgPulse.Api.Providers.Models;
 using AlibabaCloud.SDK.Dysmsapi20170525;
 using AlibabaCloud.SDK.Dysmsapi20170525.Models;
@@ -28,6 +29,99 @@ public class AliyunSmsProvider : BaseMessageProvider
 
     private AliyunSmsConfig? _config;
     private Client? _client;
+
+    public override ConfigurationSchema GetConfigurationSchema()
+    {
+        return new ConfigurationSchema
+        {
+            ProviderName = "阿里云短信",
+            Description = "阿里云短信服务(Alibaba Cloud SMS)提供快速、稳定、安全的短信发送能力",
+            DocumentationUrl = "https://help.aliyun.com/product/44282.html",
+            Fields = new List<ConfigurationField>
+            {
+                new ConfigurationField
+                {
+                    Name = "accessKeyId",
+                    Label = "AccessKey ID",
+                    Type = "text",
+                    Required = true,
+                    Placeholder = "LTA***************",
+                    HelpText = "阿里云账号的AccessKey ID，用于API认证",
+                    ValidationPattern = "^[A-Za-z0-9]{16,128}$",
+                    ValidationMessage = "请输入有效的AccessKey ID(16-128位字母数字)",
+                    IsSensitive = false,
+                    Group = "认证信息",
+                    Order = 1
+                },
+                new ConfigurationField
+                {
+                    Name = "accessKeySecret",
+                    Label = "AccessKey Secret",
+                    Type = "password",
+                    Required = true,
+                    Placeholder = "请输入AccessKey Secret",
+                    HelpText = "阿里云账号的AccessKey Secret，请妥善保管",
+                    ValidationPattern = "^[A-Za-z0-9]{30,128}$",
+                    ValidationMessage = "请输入有效的AccessKey Secret(30-128位字母数字)",
+                    IsSensitive = true,
+                    Group = "认证信息",
+                    Order = 2
+                },
+                new ConfigurationField
+                {
+                    Name = "signName",
+                    Label = "短信签名",
+                    Type = "text",
+                    Required = true,
+                    Placeholder = "您的应用名称",
+                    HelpText = "短信签名名称，需在阿里云控制台预先申请并审核通过",
+                    ValidationMessage = "请输入已审核通过的短信签名",
+                    IsSensitive = false,
+                    Group = "短信配置",
+                    Order = 3
+                },
+                new ConfigurationField
+                {
+                    Name = "regionId",
+                    Label = "地域ID",
+                    Type = "select",
+                    Required = false,
+                    DefaultValue = "cn-hangzhou",
+                    HelpText = "阿里云服务地域，默认为cn-hangzhou",
+                    IsSensitive = false,
+                    Group = "高级配置",
+                    Order = 4,
+                    Options = new List<SelectOption>
+                    {
+                        new SelectOption { Label = "华东1(杭州)", Value = "cn-hangzhou" },
+                        new SelectOption { Label = "华北2(北京)", Value = "cn-beijing" },
+                        new SelectOption { Label = "华南1(深圳)", Value = "cn-shenzhen" },
+                        new SelectOption { Label = "华东2(上海)", Value = "cn-shanghai" }
+                    }
+                },
+                new ConfigurationField
+                {
+                    Name = "endpoint",
+                    Label = "服务端点",
+                    Type = "text",
+                    Required = false,
+                    DefaultValue = "dysmsapi.aliyuncs.com",
+                    Placeholder = "dysmsapi.aliyuncs.com",
+                    HelpText = "API服务端点地址，一般无需修改",
+                    IsSensitive = false,
+                    Group = "高级配置",
+                    Order = 5
+                }
+            },
+            Example = @"{
+  ""accessKeyId"": ""LTAI***************"",
+  ""accessKeySecret"": ""您的AccessKey Secret"",
+  ""signName"": ""您的应用"",
+  ""regionId"": ""cn-hangzhou"",
+  ""endpoint"": ""dysmsapi.aliyuncs.com""
+}"
+        };
+    }
 
     public override void Initialize(string? configuration)
     {

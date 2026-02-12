@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MsgPulse.Api.Models;
 using MsgPulse.Api.Providers.Models;
 using TencentCloud.Common;
 using TencentCloud.Common.Profile;
@@ -29,6 +30,100 @@ public class TencentSmsProvider : BaseMessageProvider
 
     private TencentSmsConfig? _config;
     private SmsClient? _client;
+
+    public override ConfigurationSchema GetConfigurationSchema()
+    {
+        return new ConfigurationSchema
+        {
+            ProviderName = "腾讯云短信",
+            Description = "腾讯云短信服务(Tencent Cloud SMS)提供快速、稳定、优质的短信发送能力",
+            DocumentationUrl = "https://cloud.tencent.com/document/product/382",
+            Fields = new List<ConfigurationField>
+            {
+                new ConfigurationField
+                {
+                    Name = "secretId",
+                    Label = "SecretId",
+                    Type = "text",
+                    Required = true,
+                    Placeholder = "AKI***************",
+                    HelpText = "腾讯云账号的SecretId，用于API认证",
+                    ValidationPattern = "^[A-Za-z0-9]{32,256}$",
+                    ValidationMessage = "请输入有效的SecretId(32-256位字母数字)",
+                    IsSensitive = false,
+                    Group = "认证信息",
+                    Order = 1
+                },
+                new ConfigurationField
+                {
+                    Name = "secretKey",
+                    Label = "SecretKey",
+                    Type = "password",
+                    Required = true,
+                    Placeholder = "请输入SecretKey",
+                    HelpText = "腾讯云账号的SecretKey，请妥善保管",
+                    ValidationPattern = "^[A-Za-z0-9]{32,256}$",
+                    ValidationMessage = "请输入有效的SecretKey(32-256位字母数字)",
+                    IsSensitive = true,
+                    Group = "认证信息",
+                    Order = 2
+                },
+                new ConfigurationField
+                {
+                    Name = "sdkAppId",
+                    Label = "SDK AppID",
+                    Type = "text",
+                    Required = true,
+                    Placeholder = "1400******",
+                    HelpText = "短信应用ID，在腾讯云短信控制台创建应用后获得",
+                    ValidationPattern = "^[0-9]{10,20}$",
+                    ValidationMessage = "请输入有效的SDK AppID(10-20位数字)",
+                    IsSensitive = false,
+                    Group = "短信配置",
+                    Order = 3
+                },
+                new ConfigurationField
+                {
+                    Name = "signName",
+                    Label = "短信签名",
+                    Type = "text",
+                    Required = true,
+                    Placeholder = "您的应用名称",
+                    HelpText = "短信签名内容，需在腾讯云控制台预先申请并审核通过",
+                    ValidationMessage = "请输入已审核通过的短信签名",
+                    IsSensitive = false,
+                    Group = "短信配置",
+                    Order = 4
+                },
+                new ConfigurationField
+                {
+                    Name = "region",
+                    Label = "地域",
+                    Type = "select",
+                    Required = false,
+                    DefaultValue = "ap-guangzhou",
+                    HelpText = "腾讯云服务地域，默认为ap-guangzhou",
+                    IsSensitive = false,
+                    Group = "高级配置",
+                    Order = 5,
+                    Options = new List<SelectOption>
+                    {
+                        new SelectOption { Label = "广州", Value = "ap-guangzhou" },
+                        new SelectOption { Label = "北京", Value = "ap-beijing" },
+                        new SelectOption { Label = "上海", Value = "ap-shanghai" },
+                        new SelectOption { Label = "成都", Value = "ap-chengdu" }
+                    }
+                }
+            },
+            Example = @"{
+  ""secretId"": ""AKI***************"",
+  ""secretKey"": ""您的SecretKey"",
+  ""sdkAppId"": ""1400000000"",
+  ""signName"": ""您的应用"",
+  ""region"": ""ap-guangzhou""
+}"
+        };
+    }
 
     public override void Initialize(string? configuration)
     {

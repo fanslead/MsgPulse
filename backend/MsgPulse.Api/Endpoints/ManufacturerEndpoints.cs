@@ -32,6 +32,12 @@ public static class ManufacturerEndpoints
             .WithSummary("获取厂商配置详情")
             .WithDescription("根据厂商ID获取详细配置信息");
 
+        // 获取厂商配置Schema
+        group.MapGet("/{id}/config-schema", GetConfigurationSchema)
+            .WithName("GetConfigurationSchema")
+            .WithSummary("获取厂商配置Schema")
+            .WithDescription("获取厂商配置的结构化字段定义,用于生成配置表单");
+
         // 更新厂商配置（非新增/删除）
         group.MapPut("/{id}/config", UpdateManufacturerConfig)
             .WithName("UpdateManufacturerConfig")
@@ -121,6 +127,25 @@ public static class ManufacturerEndpoints
         };
 
         return Results.Ok(ApiResponse.Success(result));
+    }
+
+    /// <summary>
+    /// 获取配置Schema
+    /// </summary>
+    private static IResult GetConfigurationSchema(int id)
+    {
+        var providerInfo = _providerFactory.GetProviderInfos()
+            .FirstOrDefault(p => (int)p.ProviderType == id);
+
+        if (providerInfo == null)
+            return Results.Ok(ApiResponse.Error(404, "厂商不存在"));
+
+        var provider = _providerFactory.GetProvider(providerInfo.ProviderType);
+        if (provider == null)
+            return Results.Ok(ApiResponse.Error(500, "厂商实现不存在"));
+
+        var schema = provider.GetConfigurationSchema();
+        return Results.Ok(ApiResponse.Success(schema));
     }
 
     /// <summary>

@@ -1,3 +1,4 @@
+using MsgPulse.Api.Models;
 using MsgPulse.Api.Providers.Models;
 
 namespace MsgPulse.Api.Providers;
@@ -16,6 +17,11 @@ public interface IMessageProvider
     /// 支持的渠道
     /// </summary>
     MessageChannel[] SupportedChannels { get; }
+
+    /// <summary>
+    /// 获取配置Schema
+    /// </summary>
+    ConfigurationSchema GetConfigurationSchema();
 
     /// <summary>
     /// 初始化配置

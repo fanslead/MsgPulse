@@ -1,3 +1,4 @@
+using MsgPulse.Api.Models;
 using MsgPulse.Api.Providers.Models;
 
 namespace MsgPulse.Api.Providers;
@@ -9,6 +10,11 @@ public abstract class BaseMessageProvider : IMessageProvider
 {
     public abstract ProviderType ProviderType { get; }
     public abstract MessageChannel[] SupportedChannels { get; }
+
+    /// <summary>
+    /// 获取配置Schema (子类必须实现)
+    /// </summary>
+    public abstract ConfigurationSchema GetConfigurationSchema();
 
     /// <summary>
     /// 厂商配置（JSON格式）
