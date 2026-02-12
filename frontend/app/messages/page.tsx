@@ -18,7 +18,7 @@ export default function MessagesPage() {
         setMessages(result.data.records);
       }
     } catch (error) {
-      console.error('Failed to load messages:', error);
+      console.error('加载消息记录失败:', error);
     } finally {
       setLoading(false);
     }
@@ -29,48 +29,76 @@ export default function MessagesPage() {
       await api.post(`/api/messages/${id}/retry`, {});
       loadMessages();
     } catch (error) {
-      console.error('Failed to retry message:', error);
+      console.error('重试失败:', error);
     }
   };
 
-  if (loading) return <div>Loading...</div>;
+  if (loading) {
+    return <div className="flex items-center justify-center h-64">
+      <div className="text-slate-400">加载中...</div>
+    </div>;
+  }
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-6">Message Records</h1>
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+          消息记录
+        </h1>
+        <p className="text-slate-400 mt-1">查看和管理消息发送记录</p>
+      </div>
+
+      <div className="glass-card rounded-xl overflow-hidden">
         <table className="min-w-full">
-          <thead className="bg-gray-100">
+          <thead>
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Task ID</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Template</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Recipient</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">任务ID</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">类型</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">模板</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">接收方</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">状态</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">操作</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200">
-            {messages.map((message) => (
-              <tr key={message.id}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">{message.taskId}</td>
-                <td className="px-6 py-4 whitespace-nowrap">{message.messageType}</td>
-                <td className="px-6 py-4 whitespace-nowrap">{message.templateCode}</td>
-                <td className="px-6 py-4 whitespace-nowrap">{message.recipient}</td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`px-2 py-1 text-xs rounded ${message.sendStatus === 'Success' ? 'bg-green-100 text-green-800' : message.sendStatus === 'Failed' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                    {message.sendStatus}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  {message.sendStatus === 'Failed' && (
-                    <button onClick={() => handleRetry(message.id)} className="text-blue-600 hover:text-blue-800">
-                      Retry
-                    </button>
-                  )}
+          <tbody>
+            {messages.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                  暂无消息记录
                 </td>
               </tr>
-            ))}
+            ) : (
+              messages.map((message) => (
+                <tr key={message.id}>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <code className="px-2 py-1 bg-slate-700/50 rounded text-xs text-indigo-300">
+                      {message.taskId}
+                    </code>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-slate-300">{message.messageType}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-slate-300">{message.templateCode}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-slate-300">{message.recipient}</td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`badge ${
+                      message.sendStatus === '成功' ? 'badge-success' :
+                      message.sendStatus === '失败' ? 'badge-error' : 'badge-warning'
+                    }`}>
+                      {message.sendStatus}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {message.sendStatus === '失败' && (
+                      <button
+                        onClick={() => handleRetry(message.id)}
+                        className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
+                      >
+                        🔄 重试
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
