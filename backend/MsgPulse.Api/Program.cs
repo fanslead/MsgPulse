@@ -24,11 +24,14 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// 确保数据库已创建
+// 确保数据库已创建并初始化种子数据
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<MsgPulseDbContext>();
     db.Database.EnsureCreated();
+
+    // 初始化预设厂商数据
+    DbInitializer.SeedManufacturers(db);
 }
 
 // 开发环境配置

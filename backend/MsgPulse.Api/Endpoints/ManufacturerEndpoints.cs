@@ -1,138 +1,287 @@
 using Microsoft.EntityFrameworkCore;
 using MsgPulse.Api.Data;
 using MsgPulse.Api.Models;
+using MsgPulse.Api.Providers;
+using MsgPulse.Api.Providers.Models;
 
 namespace MsgPulse.Api.Endpoints;
 
 /// <summary>
-/// 厂商管理端点
+/// 厂商管理端点（配置管理，非CRUD）
 /// </summary>
 public static class ManufacturerEndpoints
 {
+    private static readonly ProviderFactory _providerFactory = new();
+
     /// <summary>
     /// 注册厂商相关的所有端点
     /// </summary>
     public static void MapManufacturerEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/manufacturers").WithTags("厂商管理");
+        var group = app.MapGroup("/api/manufacturers").WithTags("厂商配置管理");
 
-        // 获取厂商列表
+        // 获取所有预设厂商列表
         group.MapGet("/", GetManufacturers)
             .WithName("GetManufacturers")
-            .WithSummary("获取厂商列表")
-            .WithDescription("支持按名称和渠道类型筛选厂商");
+            .WithSummary("获取所有预设厂商列表")
+            .WithDescription("返回系统预设的所有厂商及其配置状态");
 
-        // 获取单个厂商
+        // 获取单个厂商配置
         group.MapGet("/{id}", GetManufacturer)
             .WithName("GetManufacturer")
-            .WithSummary("获取厂商详情")
-            .WithDescription("根据ID获取单个厂商的详细信息");
+            .WithSummary("获取厂商配置详情")
+            .WithDescription("根据厂商ID获取详细配置信息");
 
-        // 创建厂商
-        group.MapPost("/", CreateManufacturer)
-            .WithName("CreateManufacturer")
-            .WithSummary("创建厂商")
-            .WithDescription("创建新的消息厂商配置");
+        // 更新厂商配置（非新增/删除）
+        group.MapPut("/{id}/config", UpdateManufacturerConfig)
+            .WithName("UpdateManufacturerConfig")
+            .WithSummary("更新厂商配置")
+            .WithDescription("配置厂商的AccessKey等参数，并启用/禁用厂商");
 
-        // 更新厂商
-        group.MapPut("/{id}", UpdateManufacturer)
-            .WithName("UpdateManufacturer")
-            .WithSummary("更新厂商")
-            .WithDescription("更新现有厂商的配置信息");
+        // 测试厂商连接
+        group.MapPost("/{id}/test", TestManufacturerConnection)
+            .WithName("TestManufacturerConnection")
+            .WithSummary("测试厂商连接")
+            .WithDescription("测试指定渠道的连通性");
 
-        // 删除厂商
-        group.MapDelete("/{id}", DeleteManufacturer)
-            .WithName("DeleteManufacturer")
-            .WithSummary("删除厂商")
-            .WithDescription("删除指定的厂商（需确保没有关联数据）");
+        // 同步短信模板
+        group.MapPost("/{id}/sync-templates", SyncSmsTemplates)
+            .WithName("SyncSmsTemplates")
+            .WithSummary("同步短信模板")
+            .WithDescription("从厂商侧拉取并同步短信模板列表");
     }
 
+    /// <summary>
+    /// 获取所有厂商（包括已配置和未配置的）
+    /// </summary>
     private static async Task<IResult> GetManufacturers(
         MsgPulseDbContext db,
-        string? name,
         string? channel)
     {
-        var query = db.Manufacturers.AsQueryable();
+        // 从数据库获取已保存的配置
+        var dbManufacturers = await db.Manufacturers.ToListAsync();
 
-        if (!string.IsNullOrEmpty(name))
-            query = query.Where(m => m.Name.Contains(name));
+        // 获取所有预设厂商
+        var allProviders = _providerFactory.GetProviderInfos();
 
+        // 合并数据：预设厂商 + 数据库配置状态
+        var result = allProviders.Select(p =>
+        {
+            var dbConfig = dbManufacturers.FirstOrDefault(m => m.Id == (int)p.ProviderType);
+            return new
+            {
+                id = (int)p.ProviderType,
+                providerType = p.ProviderType.ToString(),
+                name = p.Name,
+                code = p.Code,
+                supportedChannels = string.Join(",", p.SupportedChannels.Select(c => c.ToString())),
+                isActive = dbConfig?.IsActive ?? false,
+                isConfigured = !string.IsNullOrWhiteSpace(dbConfig?.Configuration),
+                description = dbConfig?.Description ?? $"{p.Name}服务",
+                updatedAt = dbConfig?.UpdatedAt
+            };
+        }).AsEnumerable();
+
+        // 按渠道筛选
         if (!string.IsNullOrEmpty(channel))
-            query = query.Where(m => m.SupportedChannels.Contains(channel));
+        {
+            result = result.Where(m => m.supportedChannels.Contains(channel, StringComparison.OrdinalIgnoreCase));
+        }
 
-        var manufacturers = await query.OrderByDescending(m => m.CreatedAt).ToListAsync();
-        return Results.Ok(ApiResponse.Success(manufacturers));
+        return Results.Ok(ApiResponse.Success(result.ToList()));
     }
 
+    /// <summary>
+    /// 获取单个厂商配置
+    /// </summary>
     private static async Task<IResult> GetManufacturer(int id, MsgPulseDbContext db)
     {
         var manufacturer = await db.Manufacturers.FindAsync(id);
-        if (manufacturer == null)
+
+        // 即使数据库中没有配置，也返回预设信息
+        var providerInfo = _providerFactory.GetProviderInfos()
+            .FirstOrDefault(p => (int)p.ProviderType == id);
+
+        if (providerInfo == null)
             return Results.Ok(ApiResponse.Error(404, "厂商不存在"));
 
-        return Results.Ok(ApiResponse.Success(manufacturer));
+        var result = new
+        {
+            id,
+            providerType = providerInfo.ProviderType.ToString(),
+            name = providerInfo.Name,
+            code = providerInfo.Code,
+            supportedChannels = string.Join(",", providerInfo.SupportedChannels.Select(c => c.ToString())),
+            isActive = manufacturer?.IsActive ?? false,
+            isConfigured = !string.IsNullOrWhiteSpace(manufacturer?.Configuration),
+            configuration = manufacturer?.Configuration, // 返回配置供编辑
+            description = manufacturer?.Description ?? $"{providerInfo.Name}服务",
+            createdAt = manufacturer?.CreatedAt,
+            updatedAt = manufacturer?.UpdatedAt
+        };
+
+        return Results.Ok(ApiResponse.Success(result));
     }
 
-    private static async Task<IResult> CreateManufacturer(
-        Manufacturer manufacturer,
-        MsgPulseDbContext db)
-    {
-        if (await db.Manufacturers.AnyAsync(m => m.Code == manufacturer.Code))
-            return Results.Ok(ApiResponse.Error(400, "厂商编码已存在"));
-
-        manufacturer.CreatedAt = DateTime.UtcNow;
-        manufacturer.UpdatedAt = DateTime.UtcNow;
-        db.Manufacturers.Add(manufacturer);
-        await db.SaveChangesAsync();
-
-        return Results.Ok(ApiResponse.Success(new { id = manufacturer.Id }, "厂商创建成功"));
-    }
-
-    private static async Task<IResult> UpdateManufacturer(
+    /// <summary>
+    /// 更新厂商配置
+    /// </summary>
+    private static async Task<IResult> UpdateManufacturerConfig(
         int id,
-        Manufacturer updatedManufacturer,
+        UpdateConfigRequest request,
+        MsgPulseDbContext db)
+    {
+        var providerInfo = _providerFactory.GetProviderInfos()
+            .FirstOrDefault(p => (int)p.ProviderType == id);
+
+        if (providerInfo == null)
+            return Results.Ok(ApiResponse.Error(404, "厂商不存在"));
+
+        var manufacturer = await db.Manufacturers.FindAsync(id);
+
+        if (manufacturer == null)
+        {
+            // 首次配置，创建记录
+            manufacturer = new Manufacturer
+            {
+                Id = id,
+                ProviderType = providerInfo.ProviderType,
+                Name = providerInfo.Name,
+                Code = providerInfo.Code,
+                SupportedChannels = string.Join(",", providerInfo.SupportedChannels.Select(c => c.ToString())),
+                Description = request.Description ?? $"{providerInfo.Name}服务",
+                Configuration = request.Configuration,
+                IsActive = request.IsActive,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            db.Manufacturers.Add(manufacturer);
+        }
+        else
+        {
+            // 更新配置
+            manufacturer.Configuration = request.Configuration;
+            manufacturer.IsActive = request.IsActive;
+            manufacturer.Description = request.Description ?? manufacturer.Description;
+            manufacturer.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await db.SaveChangesAsync();
+
+        return Results.Ok(ApiResponse.Success(message: "厂商配置更新成功"));
+    }
+
+    /// <summary>
+    /// 测试厂商连接
+    /// </summary>
+    private static async Task<IResult> TestManufacturerConnection(
+        int id,
+        TestConnectionRequest request,
         MsgPulseDbContext db)
     {
         var manufacturer = await db.Manufacturers.FindAsync(id);
-        if (manufacturer == null)
-            return Results.Ok(ApiResponse.Error(404, "厂商不存在"));
+        if (manufacturer == null || string.IsNullOrWhiteSpace(manufacturer.Configuration))
+            return Results.Ok(ApiResponse.Error(400, "厂商未配置"));
 
-        if (updatedManufacturer.Code != manufacturer.Code &&
-            await db.Manufacturers.AnyAsync(m => m.Code == updatedManufacturer.Code))
-            return Results.Ok(ApiResponse.Error(400, "厂商编码已存在"));
+        var provider = _providerFactory.GetProvider(manufacturer.ProviderType);
+        if (provider == null)
+            return Results.Ok(ApiResponse.Error(500, "厂商实现不存在"));
 
-        manufacturer.Name = updatedManufacturer.Name;
-        manufacturer.Code = updatedManufacturer.Code;
-        manufacturer.Description = updatedManufacturer.Description;
-        manufacturer.SupportedChannels = updatedManufacturer.SupportedChannels;
-        manufacturer.SmsConfig = updatedManufacturer.SmsConfig;
-        manufacturer.EmailConfig = updatedManufacturer.EmailConfig;
-        manufacturer.AppPushConfig = updatedManufacturer.AppPushConfig;
-        manufacturer.IsActive = updatedManufacturer.IsActive;
-        manufacturer.UpdatedAt = DateTime.UtcNow;
+        // 初始化配置
+        provider.Initialize(manufacturer.Configuration);
 
-        await db.SaveChangesAsync();
+        // 测试连接
+        var testResult = await provider.TestConnectionAsync(request.Channel);
 
-        return Results.Ok(ApiResponse.Success(message: "厂商更新成功"));
+        if (testResult.IsSuccess)
+        {
+            return Results.Ok(ApiResponse.Success(new
+            {
+                isSuccess = true,
+                message = testResult.MessageId ?? "连接测试成功",
+                rawResponse = testResult.RawResponse
+            }));
+        }
+        else
+        {
+            return Results.Ok(ApiResponse.Error(500, testResult.ErrorMessage ?? "连接测试失败"));
+        }
     }
 
-    private static async Task<IResult> DeleteManufacturer(int id, MsgPulseDbContext db)
+    /// <summary>
+    /// 同步短信模板
+    /// </summary>
+    private static async Task<IResult> SyncSmsTemplates(int id, MsgPulseDbContext db)
     {
         var manufacturer = await db.Manufacturers.FindAsync(id);
-        if (manufacturer == null)
-            return Results.Ok(ApiResponse.Error(404, "厂商不存在"));
+        if (manufacturer == null || string.IsNullOrWhiteSpace(manufacturer.Configuration))
+            return Results.Ok(ApiResponse.Error(400, "厂商未配置"));
 
-        if (await db.SmsTemplates.AnyAsync(t => t.ManufacturerId == id) ||
-            await db.RouteRules.AnyAsync(r => r.TargetManufacturerId == id) ||
-            await db.MessageRecords.AnyAsync(m => m.ManufacturerId == id))
-            return Results.Ok(ApiResponse.Error(400, "存在关联数据，无法删除"));
+        var provider = _providerFactory.GetProvider(manufacturer.ProviderType);
+        if (provider == null)
+            return Results.Ok(ApiResponse.Error(500, "厂商实现不存在"));
 
-        db.Manufacturers.Remove(manufacturer);
+        provider.Initialize(manufacturer.Configuration);
+
+        var syncResult = await provider.SyncSmsTemplatesAsync();
+
+        if (!syncResult.IsSuccess)
+        {
+            return Results.Ok(ApiResponse.Error(500, syncResult.ErrorMessage ?? "模板同步失败"));
+        }
+
+        // 将同步的模板保存到数据库
+        foreach (var template in syncResult.Templates)
+        {
+            var existing = await db.SmsTemplates
+                .FirstOrDefaultAsync(t => t.Code == template.Code && t.ManufacturerId == id);
+
+            if (existing == null)
+            {
+                db.SmsTemplates.Add(new SmsTemplate
+                {
+                    ManufacturerId = id,
+                    Code = template.Code,
+                    Name = template.Name,
+                    Content = template.Content,
+                    IsActive = template.Status == "已审核" || template.Status == "已通过",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                existing.Name = template.Name;
+                existing.Content = template.Content;
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
         await db.SaveChangesAsync();
 
-        return Results.Ok(ApiResponse.Success(message: "厂商删除成功"));
+        return Results.Ok(ApiResponse.Success(new
+        {
+            syncCount = syncResult.Templates.Count,
+            templates = syncResult.Templates
+        }, $"成功同步{syncResult.Templates.Count}个模板"));
     }
 }
+
+/// <summary>
+/// 更新配置请求
+/// </summary>
+public record UpdateConfigRequest(
+    string? Configuration,
+    bool IsActive,
+    string? Description
+);
+
+/// <summary>
+/// 测试连接请求
+/// </summary>
+public record TestConnectionRequest(
+    MessageChannel Channel
+);
 
 /// <summary>
 /// API响应辅助类

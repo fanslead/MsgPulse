@@ -22,10 +22,12 @@ public class MsgPulseDbContext : DbContext
         modelBuilder.Entity<Manufacturer>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedNever(); // 使用ProviderType枚举值作为主键
             entity.HasIndex(e => e.Code).IsUnique();
             entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
             entity.Property(e => e.Code).IsRequired().HasMaxLength(100);
             entity.Property(e => e.SupportedChannels).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.ProviderType).IsRequired();
         });
 
         modelBuilder.Entity<SmsTemplate>(entity =>
