@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface SmsTemplate {
   id: number;
@@ -28,6 +29,7 @@ export default function SmsTemplatesPage() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<SmsTemplate | null>(null);
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
+  const { confirm } = useConfirm();
 
   const [formData, setFormData] = useState({
     name: '',
@@ -120,7 +122,14 @@ export default function SmsTemplatesPage() {
   };
 
   const handleDelete = async (id: number, name: string) => {
-    if (!confirm(`确定要删除模板"${name}"吗？`)) return;
+    const confirmed = await confirm({
+      title: '确认删除',
+      message: `确定要删除模板"${name}"吗？此操作不可撤销。`,
+      confirmText: '删除',
+      cancelText: '取消'
+    });
+
+    if (!confirmed) return;
 
     try {
       const result = await api.delete(`/api/sms-templates/${id}`);

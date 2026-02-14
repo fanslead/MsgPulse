@@ -18,6 +18,12 @@ builder.Services.AddSingleton<ProviderFactory>();
 // 注册速率限制服务
 builder.Services.AddSingleton<RateLimitingService>();
 
+// 注册消息去重服务
+builder.Services.AddSingleton<MessageDeduplicationService>();
+
+// 注册配置加密服务
+builder.Services.AddSingleton<ConfigurationEncryptionService>();
+
 // 注册消息队列和后台工作服务
 builder.Services.AddSingleton<BackgroundMessageQueue>();
 builder.Services.AddHostedService<MessageProcessingWorker>();
@@ -65,5 +71,8 @@ app.MapEmailTemplateEndpoints();
 app.MapRouteRuleEndpoints();
 app.MapMessageEndpoints();
 app.MapRateLimitEndpoints();
+app.MapDashboardEndpoints();
+app.MapHealthEndpoints();
+app.MapTemplatePreviewEndpoints();
 
 app.Run();

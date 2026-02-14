@@ -55,15 +55,32 @@ public static class MessageEndpoints
             .WithName("ExportMessages")
             .WithSummary("导出消息记录")
             .WithDescription("导出符合条件的消息记录为CSV格式");
+
+        // 获取去重统计
+        group.MapGet("/dedup/stats", GetDeduplicationStats)
+            .WithName("GetDeduplicationStats")
+            .WithSummary("获取消息去重统计")
+            .WithDescription("获取当前去重缓存的统计信息");
     }
 
     private static async Task<IResult> SendMessage(
         MessageSendRequest request,
         MsgPulseDbContext db,
         BackgroundMessageQueue queue,
-        RateLimitingService rateLimitingService)
+        RateLimitingService rateLimitingService,
+        MessageDeduplicationService deduplicationService)
     {
         var taskId = Guid.NewGuid().ToString();
+
+        // 消息去重检查
+        if (deduplicationService.IsDuplicate(
+            request.MessageType,
+            request.Recipient,
+            request.TemplateCode,
+            request.Variables))
+        {
+            return Results.Ok(ApiResponse.Error(409, "检测到重复消息，请勿在短时间内重复发送相同内容"));
+        }
 
         // 根据消息类型查找匹配的路由规则
         var rules = await db.RouteRules
@@ -100,6 +117,13 @@ public static class MessageEndpoints
 
             return response;
         }
+
+        // 记录消息用于去重
+        deduplicationService.RecordMessage(
+            request.MessageType,
+            request.Recipient,
+            request.TemplateCode,
+            request.Variables);
 
         // 创建消息记录
         var record = new MessageRecord
@@ -518,6 +542,12 @@ public static class MessageEndpoints
         }
 
         return result;
+    }
+
+    private static IResult GetDeduplicationStats(MessageDeduplicationService deduplicationService)
+    {
+        var stats = deduplicationService.GetStats();
+        return Results.Ok(ApiResponse.Success(stats));
     }
 }
 
