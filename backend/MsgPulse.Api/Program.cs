@@ -59,6 +59,7 @@ app.UseCors();
 
 // 注册所有端点
 app.MapManufacturerEndpoints();
+app.MapChannelEndpoints();
 app.MapSmsTemplateEndpoints();
 app.MapEmailTemplateEndpoints();
 app.MapRouteRuleEndpoints();

@@ -13,6 +13,11 @@ public class RateLimitConfig
     public int? ManufacturerId { get; set; }
 
     /// <summary>
+    /// 渠道ID (null表示全局限制)
+    /// </summary>
+    public int? ChannelId { get; set; }
+
+    /// <summary>
     /// 每秒请求数限制 (0表示不限制)
     /// </summary>
     public int RequestsPerSecond { get; set; } = 0;
@@ -46,4 +51,9 @@ public class RateLimitConfig
     /// 关联的厂商
     /// </summary>
     public Manufacturer? Manufacturer { get; set; }
+
+    /// <summary>
+    /// 关联的渠道
+    /// </summary>
+    public Channel? Channel { get; set; }
 }

@@ -58,7 +58,10 @@ public static class RouteRuleEndpoints
         string? messageType,
         bool? isActive)
     {
-        var query = db.RouteRules.Include(r => r.TargetManufacturer).AsQueryable();
+        var query = db.RouteRules
+            .Include(r => r.TargetManufacturer)
+            .Include(r => r.TargetChannel)
+            .AsQueryable();
 
         if (!string.IsNullOrEmpty(messageType))
             query = query.Where(r => r.MessageType == messageType);
@@ -77,6 +80,7 @@ public static class RouteRuleEndpoints
     {
         var rule = await db.RouteRules
             .Include(r => r.TargetManufacturer)
+            .Include(r => r.TargetChannel)
             .FirstOrDefaultAsync(r => r.Id == id);
 
         if (rule == null)
@@ -89,8 +93,19 @@ public static class RouteRuleEndpoints
         RouteRule rule,
         MsgPulseDbContext db)
     {
-        if (!await db.Manufacturers.AnyAsync(m => m.Id == rule.TargetManufacturerId && m.IsActive))
+        // 验证至少设置了一个目标（Manufacturer或Channel）
+        if (!rule.TargetManufacturerId.HasValue && !rule.TargetChannelId.HasValue)
+            return Results.Ok(ApiResponse.Error(400, "必须指定目标厂商或目标渠道"));
+
+        // 验证目标Manufacturer存在且启用
+        if (rule.TargetManufacturerId.HasValue &&
+            !await db.Manufacturers.AnyAsync(m => m.Id == rule.TargetManufacturerId && m.IsActive))
             return Results.Ok(ApiResponse.Error(400, "目标厂商不存在或未启用"));
+
+        // 验证目标Channel存在且启用
+        if (rule.TargetChannelId.HasValue &&
+            !await db.Channels.AnyAsync(c => c.Id == rule.TargetChannelId && c.IsActive))
+            return Results.Ok(ApiResponse.Error(400, "目标渠道不存在或未启用"));
 
         rule.CreatedAt = DateTime.UtcNow;
         rule.UpdatedAt = DateTime.UtcNow;
@@ -109,13 +124,25 @@ public static class RouteRuleEndpoints
         if (rule == null)
             return Results.Ok(ApiResponse.Error(404, "路由规则不存在"));
 
-        if (!await db.Manufacturers.AnyAsync(m => m.Id == updatedRule.TargetManufacturerId))
+        // 验证至少设置了一个目标
+        if (!updatedRule.TargetManufacturerId.HasValue && !updatedRule.TargetChannelId.HasValue)
+            return Results.Ok(ApiResponse.Error(400, "必须指定目标厂商或目标渠道"));
+
+        // 验证目标Manufacturer存在（如果设置了）
+        if (updatedRule.TargetManufacturerId.HasValue &&
+            !await db.Manufacturers.AnyAsync(m => m.Id == updatedRule.TargetManufacturerId))
             return Results.Ok(ApiResponse.Error(400, "目标厂商不存在"));
+
+        // 验证目标Channel存在（如果设置了）
+        if (updatedRule.TargetChannelId.HasValue &&
+            !await db.Channels.AnyAsync(c => c.Id == updatedRule.TargetChannelId))
+            return Results.Ok(ApiResponse.Error(400, "目标渠道不存在"));
 
         rule.Name = updatedRule.Name;
         rule.MessageType = updatedRule.MessageType;
         rule.MatchConditions = updatedRule.MatchConditions;
         rule.TargetManufacturerId = updatedRule.TargetManufacturerId;
+        rule.TargetChannelId = updatedRule.TargetChannelId;
         rule.Priority = updatedRule.Priority;
         rule.IsActive = updatedRule.IsActive;
         rule.UpdatedAt = DateTime.UtcNow;
@@ -150,6 +177,7 @@ public static class RouteRuleEndpoints
         // 获取所有启用的路由规则,按优先级排序
         var rules = await db.RouteRules
             .Include(r => r.TargetManufacturer)
+            .Include(r => r.TargetChannel)
             .Where(r => r.MessageType == request.MessageType && r.IsActive)
             .OrderBy(r => r.Priority)
             .ToListAsync();
@@ -162,9 +190,8 @@ public static class RouteRuleEndpoints
         // 遍历规则,找到第一个匹配的
         foreach (var rule in rules)
         {
-            // 简化版匹配逻辑:只要厂商启用就认为匹配
-            // 实际项目应根据MatchConditions进行复杂匹配
-            if (rule.TargetManufacturer?.IsActive == true)
+            // 优先检查Channel，其次检查Manufacturer
+            if (rule.TargetChannel?.IsActive == true)
             {
                 return Results.Ok(ApiResponse.Success(new
                 {
@@ -172,6 +199,26 @@ public static class RouteRuleEndpoints
                     ruleId = rule.Id,
                     ruleName = rule.Name,
                     priority = rule.Priority,
+                    targetType = "Channel",
+                    targetChannel = new
+                    {
+                        id = rule.TargetChannel.Id,
+                        name = rule.TargetChannel.Name,
+                        code = rule.TargetChannel.Code,
+                        channelType = rule.TargetChannel.ChannelType.ToString()
+                    },
+                    matchConditions = rule.MatchConditions
+                }, $"匹配成功:规则「{rule.Name}」,目标渠道「{rule.TargetChannel.Name}」"));
+            }
+            else if (rule.TargetManufacturer?.IsActive == true)
+            {
+                return Results.Ok(ApiResponse.Success(new
+                {
+                    matched = true,
+                    ruleId = rule.Id,
+                    ruleName = rule.Name,
+                    priority = rule.Priority,
+                    targetType = "Manufacturer",
                     targetManufacturer = new
                     {
                         id = rule.TargetManufacturer.Id,
