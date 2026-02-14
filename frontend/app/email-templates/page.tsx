@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface EmailTemplate {
   id: number;
@@ -57,6 +58,7 @@ export default function EmailTemplatesPage() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<EmailTemplate | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
+  const { confirm } = useConfirm();
   const [formData, setFormData] = useState({
     name: '',
     code: '',
@@ -132,7 +134,14 @@ export default function EmailTemplatesPage() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('确认删除此模板?')) return;
+    const confirmed = await confirm({
+      title: '确认删除',
+      message: '确认删除此邮件模板吗？此操作不可撤销。',
+      confirmText: '删除',
+      cancelText: '取消'
+    });
+
+    if (!confirmed) return;
 
     const result = await api.delete(`/api/email-templates/${id}`);
     if (result.code === 200) {

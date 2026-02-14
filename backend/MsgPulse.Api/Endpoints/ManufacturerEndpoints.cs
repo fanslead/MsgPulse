@@ -3,6 +3,7 @@ using MsgPulse.Api.Data;
 using MsgPulse.Api.Models;
 using MsgPulse.Api.Providers;
 using MsgPulse.Api.Providers.Models;
+using MsgPulse.Api.Services;
 
 namespace MsgPulse.Api.Endpoints;
 
@@ -99,7 +100,11 @@ public static class ManufacturerEndpoints
     /// <summary>
     /// 获取单个厂商配置
     /// </summary>
-    private static async Task<IResult> GetManufacturer(int id, MsgPulseDbContext db, ProviderFactory providerFactory)
+    private static async Task<IResult> GetManufacturer(
+        int id,
+        MsgPulseDbContext db,
+        ProviderFactory providerFactory,
+        ConfigurationEncryptionService encryptionService)
     {
         var manufacturer = await db.Manufacturers.FindAsync(id);
 
@@ -110,6 +115,13 @@ public static class ManufacturerEndpoints
         if (providerInfo == null)
             return Results.Ok(ApiResponse.Error(404, "厂商不存在"));
 
+        // 解密配置用于编辑
+        var configuration = manufacturer?.Configuration;
+        if (!string.IsNullOrEmpty(configuration))
+        {
+            configuration = encryptionService.DecryptIfNeeded(configuration);
+        }
+
         var result = new
         {
             id,
@@ -119,7 +131,7 @@ public static class ManufacturerEndpoints
             supportedChannels = string.Join(",", providerInfo.SupportedChannels.Select(c => c.ToString())),
             isActive = manufacturer?.IsActive ?? false,
             isConfigured = !string.IsNullOrWhiteSpace(manufacturer?.Configuration),
-            configuration = manufacturer?.Configuration, // 返回配置供编辑
+            configuration, // 返回解密后的配置供编辑
             description = manufacturer?.Description ?? $"{providerInfo.Name}服务",
             createdAt = manufacturer?.CreatedAt,
             updatedAt = manufacturer?.UpdatedAt
@@ -154,7 +166,8 @@ public static class ManufacturerEndpoints
         int id,
         UpdateConfigRequest request,
         MsgPulseDbContext db,
-        ProviderFactory providerFactory)
+        ProviderFactory providerFactory,
+        ConfigurationEncryptionService encryptionService)
     {
         var providerInfo = providerFactory.GetProviderInfos()
             .FirstOrDefault(p => (int)p.ProviderType == id);
@@ -163,6 +176,9 @@ public static class ManufacturerEndpoints
             return Results.Ok(ApiResponse.Error(404, "厂商不存在"));
 
         var manufacturer = await db.Manufacturers.FindAsync(id);
+
+        // 加密配置
+        var encryptedConfiguration = encryptionService.EncryptIfNeeded(request.Configuration ?? string.Empty);
 
         if (manufacturer == null)
         {
@@ -175,7 +191,7 @@ public static class ManufacturerEndpoints
                 Code = providerInfo.Code,
                 SupportedChannels = string.Join(",", providerInfo.SupportedChannels.Select(c => c.ToString())),
                 Description = request.Description ?? $"{providerInfo.Name}服务",
-                Configuration = request.Configuration,
+                Configuration = encryptedConfiguration,
                 IsActive = request.IsActive,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -185,7 +201,7 @@ public static class ManufacturerEndpoints
         else
         {
             // 更新配置
-            manufacturer.Configuration = request.Configuration;
+            manufacturer.Configuration = encryptedConfiguration;
             manufacturer.IsActive = request.IsActive;
             manufacturer.Description = request.Description ?? manufacturer.Description;
             manufacturer.UpdatedAt = DateTime.UtcNow;
@@ -203,7 +219,8 @@ public static class ManufacturerEndpoints
         int id,
         TestConnectionRequest request,
         MsgPulseDbContext db,
-        ProviderFactory providerFactory)
+        ProviderFactory providerFactory,
+        ConfigurationEncryptionService encryptionService)
     {
         var manufacturer = await db.Manufacturers.FindAsync(id);
         if (manufacturer == null || string.IsNullOrWhiteSpace(manufacturer.Configuration))
@@ -213,8 +230,9 @@ public static class ManufacturerEndpoints
         if (provider == null)
             return Results.Ok(ApiResponse.Error(500, "厂商实现不存在"));
 
-        // 初始化配置
-        provider.Initialize(manufacturer.Configuration);
+        // 解密配置后初始化
+        var decryptedConfiguration = encryptionService.DecryptIfNeeded(manufacturer.Configuration);
+        provider.Initialize(decryptedConfiguration);
 
         // 测试连接
         var testResult = await provider.TestConnectionAsync(request.Channel);
@@ -237,7 +255,11 @@ public static class ManufacturerEndpoints
     /// <summary>
     /// 同步短信模板
     /// </summary>
-    private static async Task<IResult> SyncSmsTemplates(int id, MsgPulseDbContext db, ProviderFactory providerFactory)
+    private static async Task<IResult> SyncSmsTemplates(
+        int id,
+        MsgPulseDbContext db,
+        ProviderFactory providerFactory,
+        ConfigurationEncryptionService encryptionService)
     {
         var manufacturer = await db.Manufacturers.FindAsync(id);
         if (manufacturer == null || string.IsNullOrWhiteSpace(manufacturer.Configuration))
@@ -247,7 +269,9 @@ public static class ManufacturerEndpoints
         if (provider == null)
             return Results.Ok(ApiResponse.Error(500, "厂商实现不存在"));
 
-        provider.Initialize(manufacturer.Configuration);
+        // 解密配置后初始化
+        var decryptedConfiguration = encryptionService.DecryptIfNeeded(manufacturer.Configuration);
+        provider.Initialize(decryptedConfiguration);
 
         var syncResult = await provider.SyncSmsTemplatesAsync();
 

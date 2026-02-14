@@ -21,6 +21,9 @@ builder.Services.AddSingleton<RateLimitingService>();
 // 注册消息去重服务
 builder.Services.AddSingleton<MessageDeduplicationService>();
 
+// 注册配置加密服务
+builder.Services.AddSingleton<ConfigurationEncryptionService>();
+
 // 注册消息队列和后台工作服务
 builder.Services.AddSingleton<BackgroundMessageQueue>();
 builder.Services.AddHostedService<MessageProcessingWorker>();

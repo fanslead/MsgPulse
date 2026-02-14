@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import ConfigField from '@/components/ConfigField';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface Channel {
   id: number;
@@ -62,6 +63,7 @@ export default function ChannelsPage() {
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showExample, setShowExample] = useState(false);
+  const { confirm } = useConfirm();
 
   // 表单数据
   const [formValues, setFormValues] = useState<Record<string, string>>({});
@@ -239,7 +241,14 @@ export default function ChannelsPage() {
   };
 
   const handleDelete = async (channel: Channel) => {
-    if (!confirm(`确定要删除渠道"${channel.name}"吗？`)) {
+    const confirmed = await confirm({
+      title: '确认删除',
+      message: `确定要删除渠道"${channel.name}"吗？此操作不可撤销。`,
+      confirmText: '删除',
+      cancelText: '取消'
+    });
+
+    if (!confirmed) {
       return;
     }
 

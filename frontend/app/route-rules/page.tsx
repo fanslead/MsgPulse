@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 interface RouteRule {
   id: number;
@@ -76,6 +77,7 @@ export default function RouteRulesPage() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<RouteRule | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
+  const { confirm } = useConfirm();
   const [formData, setFormData] = useState({
     name: '',
     messageType: 'SMS',
@@ -173,7 +175,14 @@ export default function RouteRulesPage() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('确认删除此规则?')) return;
+    const confirmed = await confirm({
+      title: '确认删除',
+      message: '确认删除此路由规则吗？此操作不可撤销。',
+      confirmText: '删除',
+      cancelText: '取消'
+    });
+
+    if (!confirmed) return;
 
     const result = await api.delete(`/api/route-rules/${id}`);
     if (result.code === 200) {

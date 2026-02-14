@@ -97,6 +97,7 @@ public class MessageProcessingWorker : BackgroundService
         var db = scope.ServiceProvider.GetRequiredService<MsgPulseDbContext>();
         var providerFactory = scope.ServiceProvider.GetRequiredService<ProviderFactory>();
         var callbackService = scope.ServiceProvider.GetRequiredService<CallbackService>();
+        var encryptionService = scope.ServiceProvider.GetRequiredService<ConfigurationEncryptionService>();
 
         // 加载消息记录
         var record = await db.MessageRecords
@@ -124,7 +125,7 @@ public class MessageProcessingWorker : BackgroundService
         try
         {
             // 调用厂商API发送
-            var result = await SendMessageViaProviderAsync(record, providerFactory, db, cancellationToken);
+            var result = await SendMessageViaProviderAsync(record, providerFactory, db, encryptionService, cancellationToken);
 
             // 更新发送结果
             if (result.IsSuccess)
@@ -207,6 +208,7 @@ public class MessageProcessingWorker : BackgroundService
         MessageRecord record,
         ProviderFactory providerFactory,
         MsgPulseDbContext db,
+        ConfigurationEncryptionService encryptionService,
         CancellationToken cancellationToken)
     {
         if (record.Manufacturer == null || string.IsNullOrWhiteSpace(record.Manufacturer.Configuration))
@@ -220,7 +222,9 @@ public class MessageProcessingWorker : BackgroundService
             return ProviderResult.Failure("厂商实现不存在");
         }
 
-        provider.Initialize(record.Manufacturer.Configuration);
+        // 解密配置后初始化
+        var decryptedConfiguration = encryptionService.DecryptIfNeeded(record.Manufacturer.Configuration);
+        provider.Initialize(decryptedConfiguration);
 
         // 根据消息类型调用不同的发送方法
         if (record.MessageType == "SMS")
