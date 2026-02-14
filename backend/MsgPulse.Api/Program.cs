@@ -67,5 +67,6 @@ app.MapMessageEndpoints();
 app.MapRateLimitEndpoints();
 app.MapDashboardEndpoints();
 app.MapHealthEndpoints();
+app.MapTemplatePreviewEndpoints();
 
 app.Run();
