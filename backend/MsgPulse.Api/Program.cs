@@ -65,5 +65,7 @@ app.MapEmailTemplateEndpoints();
 app.MapRouteRuleEndpoints();
 app.MapMessageEndpoints();
 app.MapRateLimitEndpoints();
+app.MapDashboardEndpoints();
+app.MapHealthEndpoints();
 
 app.Run();
