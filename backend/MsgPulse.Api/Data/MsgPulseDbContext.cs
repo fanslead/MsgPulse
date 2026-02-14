@@ -10,6 +10,7 @@ public class MsgPulseDbContext : DbContext
     }
 
     public DbSet<Manufacturer> Manufacturers { get; set; }
+    public DbSet<Channel> Channels { get; set; }
     public DbSet<SmsTemplate> SmsTemplates { get; set; }
     public DbSet<EmailTemplate> EmailTemplates { get; set; }
     public DbSet<RouteRule> RouteRules { get; set; }
@@ -31,6 +32,16 @@ public class MsgPulseDbContext : DbContext
             entity.Property(e => e.ProviderType).IsRequired();
         });
 
+        modelBuilder.Entity<Channel>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.Code).IsUnique();
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Code).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.SupportedChannels).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.ChannelType).IsRequired();
+        });
+
         modelBuilder.Entity<SmsTemplate>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -40,6 +51,10 @@ public class MsgPulseDbContext : DbContext
             entity.HasOne(e => e.Manufacturer)
                 .WithMany()
                 .HasForeignKey(e => e.ManufacturerId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.Channel)
+                .WithMany()
+                .HasForeignKey(e => e.ChannelId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -62,6 +77,10 @@ public class MsgPulseDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.TargetManufacturerId)
                 .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.TargetChannel)
+                .WithMany()
+                .HasForeignKey(e => e.TargetChannelId)
+                .OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(e => new { e.MessageType, e.Priority });
         });
 
@@ -78,6 +97,10 @@ public class MsgPulseDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.ManufacturerId)
                 .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.Channel)
+                .WithMany()
+                .HasForeignKey(e => e.ChannelId)
+                .OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(e => e.RouteRule)
                 .WithMany()
                 .HasForeignKey(e => e.RouteRuleId)
@@ -85,6 +108,7 @@ public class MsgPulseDbContext : DbContext
             entity.HasIndex(e => e.CreatedAt);
             entity.HasIndex(e => e.SendStatus);
             entity.HasIndex(e => e.ManufacturerId);
+            entity.HasIndex(e => e.ChannelId);
         });
 
         modelBuilder.Entity<RateLimitConfig>(entity =>
@@ -94,7 +118,12 @@ public class MsgPulseDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.ManufacturerId)
                 .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Channel)
+                .WithMany()
+                .HasForeignKey(e => e.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(e => e.ManufacturerId);
+            entity.HasIndex(e => e.ChannelId);
         });
     }
 }
